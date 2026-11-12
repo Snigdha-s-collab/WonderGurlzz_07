@@ -1,10 +1,23 @@
 import { useState } from 'react';
+import NotificationBell from './NotificationBell';
 
 function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
 }
 
-export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, currentUser, onLogout }) {
+export default function MyUploads({
+  setPage,
+  uploads = [],
+  onOpenUploadModal,
+  currentUser,
+  onLogout,
+  notifications = [],
+  reminders = [],
+  onMarkTaken,
+  onDismissNotification,
+  onTriggerTestReminder,
+  onOpenMedBot,
+}) {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -47,6 +60,9 @@ export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, cu
                 onClick={() => {
                   if (link === 'Home') setPage('landing');
                   else if (link === 'Access QR') setPage('dashboard');
+                  else if (link === 'Ask MedBot') {
+                    onOpenMedBot ? onOpenMedBot() : setPage('medbot');
+                  }
                 }}
                 className={`text-sm font-medium transition-colors ${
                   link === 'My Uploads' ? 'text-teal-300 font-bold' : 'text-white/80 hover:text-teal-300'
@@ -59,6 +75,14 @@ export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, cu
 
           {/* User profile & actions */}
           <div className="flex items-center gap-3">
+            <NotificationBell
+              notifications={notifications}
+              reminders={reminders}
+              onMarkTaken={onMarkTaken}
+              onDismissNotification={onDismissNotification}
+              onTriggerTestReminder={onTriggerTestReminder}
+              onOpenMedBot={() => (onOpenMedBot ? onOpenMedBot() : setPage('medbot'))}
+            />
             <button
               onClick={onOpenUploadModal}
               className="teal-gradient-btn text-white font-bold text-xs px-4 py-2 rounded-full shadow-pill-glow flex items-center gap-1.5 hover:opacity-90 active:scale-95 transition-all"
@@ -220,17 +244,26 @@ export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, cu
                 </div>
 
                 {/* Footer status & Actions */}
-                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
                   <span className="flex items-center gap-1 text-[11px] font-semibold text-teal-700">
                     <Icon name="verified" className="text-xs text-teal-500" />
                     <span>{item.status || 'Verified Record'}</span>
                   </span>
-                  <button
-                    onClick={() => alert(`Opening record: "${item.description}"`)}
-                    className="text-xs font-bold text-teal-800 hover:text-teal-600 hover:underline"
-                  >
-                    View Details →
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => (onOpenMedBot ? onOpenMedBot(item.id) : setPage('medbot'))}
+                      className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 flex items-center gap-1 transition-colors"
+                    >
+                      <Icon name="smart_toy" className="text-xs" />
+                      <span>Ask MedBot</span>
+                    </button>
+                    <button
+                      onClick={() => alert(`Opening record: "${item.description}"`)}
+                      className="text-xs font-bold text-teal-800 hover:text-teal-600 hover:underline"
+                    >
+                      Details →
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

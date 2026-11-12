@@ -21,6 +21,7 @@ const PROBLEM_CATEGORIES = [
 
 export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
   const [description, setDescription] = useState('');
+  const [prescriptionText, setPrescriptionText] = useState('');
   const [category, setCategory] = useState('');
   const [recordDate, setRecordDate] = useState(() => {
     const today = new Date();
@@ -37,6 +38,20 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     if (files.length > 0) {
       setSelectedFiles((prev) => [...prev, ...files]);
       setError('');
+
+      // Read plain text prescription files so Ask MedBot can analyze them automatically
+      files.forEach((file) => {
+        if (file.type.startsWith('text/') || /\.(txt|md|csv)$/i.test(file.name)) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const txt = String(reader.result || '').trim();
+            if (txt) {
+              setPrescriptionText((prev) => (prev ? `${prev}\n${txt}` : txt));
+            }
+          };
+          reader.readAsText(file);
+        }
+      });
     }
   };
 
@@ -80,6 +95,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     const newRecord = {
       id: 'upload-' + Date.now(),
       description: description.trim(),
+      prescriptionText: prescriptionText.trim() || description.trim(),
       category: category,
       date: formattedDate,
       rawDate: recordDate,
@@ -97,6 +113,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
       onUploadSuccess(newRecord);
       setIsSubmitting(false);
       setDescription('');
+      setPrescriptionText('');
       setCategory('');
       setSelectedFiles([]);
       onClose();
@@ -141,12 +158,26 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
               Description of Medication / Problem <span className="text-red-500">*</span>
             </label>
             <textarea
-              rows={3}
+              rows={2}
               placeholder="e.g. Daily Metformin 500mg prescription, fasting glucose blood report, post-surgery follow-up summary..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all resize-none"
               required
+            />
+          </div>
+
+          {/* 1b. Optional Prescription Dosage Details for Ask MedBot */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+              Prescription Medicines &amp; Schedule <span className="text-slate-400 font-normal">(Optional — used by Ask MedBot)</span>
+            </label>
+            <textarea
+              rows={2}
+              placeholder="e.g. Metformin 500mg once daily after breakfast (8:00 AM) for 90 days"
+              value={prescriptionText}
+              onChange={(e) => setPrescriptionText(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all resize-none"
             />
           </div>
 
@@ -201,7 +232,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
               <input
                 type="file"
                 multiple
-                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.txt,.md"
                 onChange={handleFileChange}
                 className="hidden"
               />
