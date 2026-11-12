@@ -102,7 +102,19 @@ export async function fetchRecordsFromSupabase() {
       .order('created_at', { ascending: false });
 
     if (!error && Array.isArray(data) && data.length > 0) {
-      return data;
+      return data.map((row) => ({
+        id: row.id,
+        title: row.title,
+        description: row.description || row.title,
+        doctorName: row.doctor_name,
+        category: row.category,
+        date: row.date,
+        rawDate: row.raw_date,
+        time: row.time,
+        status: row.status || 'Verified Record',
+        files: row.files || [],
+        ocrData: row.ocr_data,
+      }));
     }
   } catch (err) {
     console.warn('Supabase fetch failed or offline; using local cache:', err);
