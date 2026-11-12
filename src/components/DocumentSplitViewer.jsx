@@ -164,10 +164,10 @@ export default function DocumentSplitViewer({ record, onClose }) {
                 <div className="mt-3 pt-2 border-t border-teal-900/20 flex flex-wrap items-center justify-between text-xs text-slate-700 font-sans">
                   <div>
                     <span className="font-bold text-teal-950">
-                      {record.doctorName || ocr.doctorDetails || 'Dr. Ananya Rao, MD (DM Neurology)'}
+                      {record.doctorName || 'Consulting Specialist'}
                     </span>
                     <span className="text-[10px] text-slate-500 block">
-                      Reg #KMC-48219 • Consultant Neurologist
+                      Consultant Physician • {record.category}
                     </span>
                   </div>
                   <div className="text-right text-[11px] font-mono">
@@ -249,7 +249,7 @@ export default function DocumentSplitViewer({ record, onClose }) {
                 </div>
                 <div className="text-right">
                   <div className="font-serif italic text-teal-900 text-lg font-bold pr-2 select-none">
-                    Dr. Ananya Rao
+                    {record.doctorName || 'Authorized Specialist'}
                   </div>
                   <div className="text-[10px] font-bold text-slate-700 border-t border-slate-400 pt-0.5 uppercase tracking-wider">
                     Authorized Signatory & Stamp
