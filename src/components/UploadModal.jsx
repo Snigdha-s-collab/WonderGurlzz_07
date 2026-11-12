@@ -22,6 +22,10 @@ const PROBLEM_CATEGORIES = [
 export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
+  const [recordDate, setRecordDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -61,12 +65,13 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
 
     setIsSubmitting(true);
 
-    const now = new Date();
-    const formattedDate = now.toLocaleDateString('en-US', {
+    const chosenDateObj = recordDate ? new Date(recordDate) : new Date();
+    const formattedDate = chosenDateObj.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
     });
+    const now = new Date();
     const formattedTime = now.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
@@ -77,6 +82,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
       description: description.trim(),
       category: category,
       date: formattedDate,
+      rawDate: recordDate,
       time: formattedTime,
       timestamp: `${formattedDate} • ${formattedTime}`,
       files: selectedFiles.map((f) => ({
@@ -144,27 +150,44 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
             />
           </div>
 
-          {/* 2. Category of Problems */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-              Category of Problem <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all appearance-none cursor-pointer"
-                required
-              >
-                <option value="">-- Select Problem Category --</option>
-                {PROBLEM_CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-400">
-                <Icon name="arrow_drop_down" className="text-2xl" />
+          {/* 2. Category of Problems & 3. Date Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Category of Problem <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all appearance-none cursor-pointer"
+                  required
+                >
+                  <option value="">-- Select Category --</option>
+                  {PROBLEM_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-400">
+                  <Icon name="arrow_drop_down" className="text-2xl" />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Date of Record <span className="text-red-500">*</span>
+              </label>
+              <div className="relative flex items-center">
+                <input
+                  type="date"
+                  value={recordDate}
+                  onChange={(e) => setRecordDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all cursor-pointer"
+                  required
+                />
               </div>
             </div>
           </div>
