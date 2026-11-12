@@ -5,34 +5,28 @@ import AuditTrail from './components/AuditTrail';
 import AuthPage from './components/AuthPage';
 import MyUploads from './components/MyUploads';
 import UploadModal from './components/UploadModal';
+import AboutUs from './components/AboutUs';
 
-const INITIAL_UPLOADS = [
-  {
-    id: 'upload-init-1',
-    description: 'Metformin 500mg Daily Prescription — Blood sugar monitoring after breakfast',
-    category: 'Endocrinology & Diabetes',
-    date: 'Nov 10, 2026',
-    time: '10:30 AM',
-    timestamp: 'Nov 10, 2026 • 10:30 AM',
-    files: [
-      { name: 'Metformin_Prescription_DrMehta.pdf', size: '142.5 KB', type: 'application/pdf' },
-    ],
-    status: 'Cryptographically Verified',
-  },
-  {
-    id: 'upload-init-2',
-    description: 'Complete Lipid Panel & Fasting Glucose Comprehensive Pathology Report',
-    category: 'Laboratory & Pathology',
-    date: 'Nov 06, 2026',
-    time: '04:15 PM',
-    timestamp: 'Nov 06, 2026 • 04:15 PM',
-    files: [
-      { name: 'Lipid_Panel_Nov2026.pdf', size: '318.2 KB', type: 'application/pdf' },
-      { name: 'Blood_Glucose_Graph.png', size: '89.4 KB', type: 'image/png' },
-    ],
-    status: 'Cryptographically Verified',
-  },
-];
+const INITIAL_UPLOADS = [];
+
+// Specific IDs and markers of seeded demo records to remove from existing storage
+const isDemoRecord = (item) => {
+  if (!item) return false;
+  if (item.id === 'upload-init-1' || item.id === 'upload-init-2') return true;
+  if (
+    item.description === 'Metformin 500mg Daily Prescription — Blood sugar monitoring after breakfast' &&
+    item.category === 'Endocrinology & Diabetes'
+  ) {
+    return true;
+  }
+  if (
+    item.description === 'Complete Lipid Panel & Fasting Glucose Comprehensive Pathology Report' &&
+    item.category === 'Laboratory & Pathology'
+  ) {
+    return true;
+  }
+  return false;
+};
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
@@ -49,17 +43,29 @@ export default function App() {
     if (hash === 'dashboard') return 'dashboard';
     if (hash === 'audit') return 'audit';
     if (hash === 'my-uploads') return 'my-uploads';
+    if (hash === 'about-us' || hash === 'about') return 'about-us';
     return 'landing';
   });
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
-  // Load user uploads or fall back to sample records
+  // Load user uploads or fall back to empty array []
   const [uploads, setUploads] = useState(() => {
     try {
       const stored = localStorage.getItem('onepatient_user_uploads');
-      return stored ? JSON.parse(stored) : INITIAL_UPLOADS;
+      if (!stored) return INITIAL_UPLOADS;
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        // Remove only the seeded demo records, preserving genuine user uploads
+        const cleaned = parsed.filter((item) => !isDemoRecord(item));
+        if (cleaned.length !== parsed.length) {
+          localStorage.setItem('onepatient_user_uploads', JSON.stringify(cleaned));
+        }
+        return cleaned;
+      }
+      return INITIAL_UPLOADS;
     } catch (e) {
+      console.error(e);
       return INITIAL_UPLOADS;
     }
   });
@@ -70,6 +76,7 @@ export default function App() {
       if (hash === 'dashboard') setPage('dashboard');
       else if (hash === 'audit') setPage('audit');
       else if (hash === 'my-uploads') setPage('my-uploads');
+      else if (hash === 'about-us' || hash === 'about') setPage('about-us');
       else setPage('landing');
     };
 
@@ -155,6 +162,14 @@ export default function App() {
           setPage={navigateTo}
           currentUser={currentUser}
           onLogout={handleLogout}
+        />
+      )}
+      {page === 'about-us' && (
+        <AboutUs
+          setPage={navigateTo}
+          currentUser={currentUser}
+          onLogout={handleLogout}
+          onOpenUploadModal={() => setIsUploadModalOpen(true)}
         />
       )}
 
