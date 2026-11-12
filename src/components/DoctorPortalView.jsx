@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import DocumentSplitViewer from './DocumentSplitViewer';
+import { fetchRecordsFromSupabase } from '../lib/supabaseClient';
 
 function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
@@ -39,8 +40,23 @@ export default function DoctorPortalView({ setPage, uploads = [] }) {
 
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedRecordForViewer, setSelectedRecordForViewer] = useState(null);
+  const [portalRecords, setPortalRecords] = useState(uploads);
 
-  const filteredRecords = uploads.filter((item) => {
+  useEffect(() => {
+    if (uploads && uploads.length > 0) {
+      setPortalRecords(uploads);
+    }
+  }, [uploads]);
+
+  useEffect(() => {
+    fetchRecordsFromSupabase().then((remote) => {
+      if (remote && remote.length > 0) {
+        setPortalRecords(remote);
+      }
+    });
+  }, []);
+
+  const filteredRecords = portalRecords.filter((item) => {
     return selectedCategory === 'All' || item.category === selectedCategory;
   });
 

@@ -37,31 +37,37 @@ export async function fetchRecordsFromSupabase() {
 }
 
 /**
- * Insert newly user-uploaded record directly into Supabase database
+ * Insert or upsert user-uploaded record directly into Supabase database
  */
 export async function insertRecordToSupabase(record) {
   try {
-    const { data, error } = await supabase.from('medical_records').insert([
+    const rawDateVal =
+      record.rawDate && typeof record.rawDate === 'string' && record.rawDate.trim() !== ''
+        ? record.rawDate.trim()
+        : null;
+
+    const { data, error } = await supabase.from('medical_records').upsert([
       {
         id: record.id,
-        title: record.title || record.description,
-        description: record.description,
-        doctor_name: record.doctorName,
-        category: record.category,
-        date: record.date,
-        raw_date: record.rawDate,
-        time: record.time,
+        patient_id: record.patientId || 'NNM24cc059',
+        title: record.title || record.description || 'Medical Record',
+        description: record.description || record.title || '',
+        doctor_name: record.doctorName || '',
+        category: record.category || 'General Medicine',
+        date: record.date || new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+        raw_date: rawDateVal,
+        time: record.time || new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
         status: record.status || 'Verified Record',
         files: record.files || [],
         ocr_data: record.ocrData || null,
       },
     ]);
     if (error) {
-      console.warn('Supabase insert warning:', error.message);
+      console.warn('Supabase insert/upsert warning:', error.message);
     }
     return { data, error };
   } catch (err) {
-    console.warn('Could not insert to Supabase:', err);
+    console.warn('Could not insert/upsert to Supabase:', err);
     return { error: err };
   }
 }

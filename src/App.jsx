@@ -69,15 +69,43 @@ export default function App() {
 
   // Query Supabase to sync remote database records on launch
   useEffect(() => {
-    fetchRecordsFromSupabase().then((remoteRecords) => {
-      if (remoteRecords && remoteRecords.length > 0) {
-        setUploads((prev) => {
-          const existingIds = new Set(prev.map((r) => r.id));
-          const newOnes = remoteRecords.filter((r) => !existingIds.has(r.id));
-          return newOnes.length > 0 ? [...prev, ...newOnes] : prev;
-        });
+    let isMounted = true;
+    async function syncData() {
+      try {
+        const remoteRecords = await fetchRecordsFromSupabase();
+        if (!isMounted) return;
+
+        if (remoteRecords && remoteRecords.length > 0) {
+          setUploads(remoteRecords);
+          try {
+            localStorage.setItem('onepatient_user_uploads', JSON.stringify(remoteRecords));
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          // If remote DB is empty, check if user uploaded records locally to sync to Supabase
+          const stored = localStorage.getItem('onepatient_user_uploads');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              for (const r of parsed) {
+                await insertRecordToSupabase(r);
+              }
+              const reFetched = await fetchRecordsFromSupabase();
+              if (reFetched && reFetched.length > 0 && isMounted) {
+                setUploads(reFetched);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Supabase sync error:', err);
       }
-    });
+    }
+    syncData();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {

@@ -60,6 +60,12 @@ DROP POLICY IF EXISTS "Public Insert Access" ON public.medical_records;
 CREATE POLICY "Public Insert Access" ON public.medical_records FOR INSERT WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Public Update Access" ON public.medical_records;
+CREATE POLICY "Public Update Access" ON public.medical_records FOR UPDATE USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Delete Access" ON public.medical_records;
+CREATE POLICY "Public Delete Access" ON public.medical_records FOR DELETE USING (true);
+
+DROP POLICY IF EXISTS "Public Update Access" ON public.medical_records;
 CREATE POLICY "Public Update Access" ON public.medical_records FOR UPDATE USING (true);
 
 DROP POLICY IF EXISTS "Public Delete Access" ON public.medical_records;
