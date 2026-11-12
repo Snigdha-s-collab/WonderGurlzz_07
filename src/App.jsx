@@ -9,9 +9,9 @@ import AboutUs from './components/AboutUs';
 
 import AccessQRPage from './components/AccessQRPage';
 import DoctorPortalView from './components/DoctorPortalView';
-import { SEEDED_NEUROLOGY_RECORD, fetchRecordsFromSupabase, insertRecordToSupabase } from './lib/supabaseClient';
+import { fetchRecordsFromSupabase, insertRecordToSupabase } from './lib/supabaseClient';
 
-const INITIAL_UPLOADS = [SEEDED_NEUROLOGY_RECORD];
+const INITIAL_UPLOADS = [];
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
