@@ -5,6 +5,28 @@ import AuditTrail from './components/AuditTrail';
 import AuthPage from './components/AuthPage';
 import MyUploads from './components/MyUploads';
 import UploadModal from './components/UploadModal';
+import AboutUs from './components/AboutUs';
+
+const INITIAL_UPLOADS = [];
+
+// Specific IDs and markers of seeded demo records to remove from existing storage
+const isDemoRecord = (item) => {
+  if (!item) return false;
+  if (item.id === 'upload-init-1' || item.id === 'upload-init-2') return true;
+  if (
+    item.description === 'Metformin 500mg Daily Prescription — Blood sugar monitoring after breakfast' &&
+    item.category === 'Endocrinology & Diabetes'
+  ) {
+    return true;
+  }
+  if (
+    item.description === 'Complete Lipid Panel & Fasting Glucose Comprehensive Pathology Report' &&
+    item.category === 'Laboratory & Pathology'
+  ) {
+    return true;
+  }
+  return false;
+};
 import AccessQRPage from './components/AccessQRPage';
 import DoctorPortalView from './components/DoctorPortalView';
 
@@ -26,18 +48,30 @@ export default function App() {
     if (hash === 'dashboard') return 'dashboard';
     if (hash === 'audit') return 'audit';
     if (hash === 'my-uploads') return 'my-uploads';
+    if (hash === 'about-us' || hash === 'about') return 'about-us';
     if (hash === 'access-qr') return 'access-qr';
     return 'landing';
   });
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
-  // Load user uploads or fall back to sample records
+  // Load user uploads or fall back to empty array []
   const [uploads, setUploads] = useState(() => {
     try {
       const stored = localStorage.getItem('onepatient_user_uploads');
-      return stored ? JSON.parse(stored) : INITIAL_UPLOADS;
+      if (!stored) return INITIAL_UPLOADS;
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        // Remove only the seeded demo records, preserving genuine user uploads
+        const cleaned = parsed.filter((item) => !isDemoRecord(item));
+        if (cleaned.length !== parsed.length) {
+          localStorage.setItem('onepatient_user_uploads', JSON.stringify(cleaned));
+        }
+        return cleaned;
+      }
+      return INITIAL_UPLOADS;
     } catch (e) {
+      console.error(e);
       return INITIAL_UPLOADS;
     }
   });
@@ -49,6 +83,7 @@ export default function App() {
       else if (hash === 'dashboard') setPage('dashboard');
       else if (hash === 'audit') setPage('audit');
       else if (hash === 'my-uploads') setPage('my-uploads');
+      else if (hash === 'about-us' || hash === 'about') setPage('about-us');
       else if (hash === 'access-qr') setPage('access-qr');
       else setPage('landing');
     };
@@ -148,6 +183,14 @@ export default function App() {
           setPage={navigateTo}
           currentUser={currentUser}
           onLogout={handleLogout}
+        />
+      )}
+      {page === 'about-us' && (
+        <AboutUs
+          setPage={navigateTo}
+          currentUser={currentUser}
+          onLogout={handleLogout}
+          onOpenUploadModal={() => setIsUploadModalOpen(true)}
         />
       )}
 
