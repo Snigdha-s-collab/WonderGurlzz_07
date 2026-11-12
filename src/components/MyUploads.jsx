@@ -188,10 +188,18 @@ export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, cu
                     </span>
                   </div>
 
-                  {/* Description */}
-                  <h3 className="font-bold text-sm text-slate-900 mb-2 leading-snug">
-                    {item.description}
+                  {/* Description / Title */}
+                  <h3 className="font-bold text-sm text-slate-900 mb-1.5 leading-snug">
+                    {item.title || item.description}
                   </h3>
+
+                  {/* Doctor Name (if present) */}
+                  {item.doctorName && (
+                    <div className="flex items-center gap-1.5 text-xs text-teal-800 font-semibold mb-2">
+                      <Icon name="person" className="text-sm text-teal-600" />
+                      <span>{item.doctorName}</span>
+                    </div>
+                  )}
 
                   {/* Attached Files List */}
                   {item.files && item.files.length > 0 && (
