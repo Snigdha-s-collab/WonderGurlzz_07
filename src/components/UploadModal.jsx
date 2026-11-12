@@ -66,6 +66,15 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
 
     setIsSubmitting(true);
 
+    const readFileAsDataUrl = (file) => {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+      });
+    };
+
     const chosenDateObj = recordDate ? new Date(recordDate) : new Date();
     const formattedDate = chosenDateObj.toLocaleDateString('en-US', {
       year: 'numeric',
@@ -78,25 +87,35 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
       minute: '2-digit',
     });
 
-    const newRecord = {
-      id: 'upload-' + Date.now(),
-      title: title.trim(),
-      description: title.trim(),
-      doctorName: doctorName.trim(),
-      category: category,
-      date: formattedDate,
-      rawDate: recordDate,
-      time: formattedTime,
-      timestamp: `${formattedDate} • ${formattedTime}`,
-      files: selectedFiles.map((f) => ({
-        name: f.name,
-        size: (f.size / 1024).toFixed(1) + ' KB',
-        type: f.type || 'Document',
-      })),
-      status: 'Cryptographically Verified',
-    };
+    Promise.all(
+      selectedFiles.map(async (f) => {
+        let dataUrl = '';
+        if (f.type?.startsWith('image/') || f.name?.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
+          dataUrl = await readFileAsDataUrl(f);
+        }
+        return {
+          name: f.name,
+          size: (f.size / 1024).toFixed(1) + ' KB',
+          type: f.type || 'Document',
+          dataUrl: dataUrl,
+          url: dataUrl,
+        };
+      })
+    ).then((processedFiles) => {
+      const newRecord = {
+        id: 'upload-' + Date.now(),
+        title: title.trim(),
+        description: title.trim(),
+        doctorName: doctorName.trim(),
+        category: category,
+        date: formattedDate,
+        rawDate: recordDate,
+        time: formattedTime,
+        timestamp: `${formattedDate} • ${formattedTime}`,
+        files: processedFiles,
+        status: 'Cryptographically Verified',
+      };
 
-    setTimeout(() => {
       onUploadSuccess(newRecord);
       setIsSubmitting(false);
       setTitle('');
@@ -104,7 +123,11 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
       setCategory('');
       setSelectedFiles([]);
       onClose();
-    }, 600);
+    }).catch((err) => {
+      console.error(err);
+      setIsSubmitting(false);
+      setError('Error processing file. Please try again.');
+    });
   };
 
   return (

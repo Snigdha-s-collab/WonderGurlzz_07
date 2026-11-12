@@ -43,16 +43,22 @@ export default function App() {
       if (!stored) return INITIAL_UPLOADS;
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed)) {
-        // Ensure Neurology Prescription is present
-        const hasNeuro = parsed.some(
-          (item) => item.category === 'Neurology' || item.title === 'Neurology Prescription'
-        );
-        if (!hasNeuro) {
-          const withNeuro = [SEEDED_NEUROLOGY_RECORD, ...parsed];
-          localStorage.setItem('onepatient_user_uploads', JSON.stringify(withNeuro));
-          return withNeuro;
-        }
-        return parsed;
+        const enriched = parsed.map((item) => {
+          if (item.files && item.files.length > 0) {
+            item.files = item.files.map((f) => {
+              if (!f.dataUrl && !f.url) {
+                return {
+                  ...f,
+                  dataUrl: '/uploads/prescription-default.jpeg',
+                  url: '/uploads/prescription-default.jpeg',
+                };
+              }
+              return f;
+            });
+          }
+          return item;
+        });
+        return enriched;
       }
       return INITIAL_UPLOADS;
     } catch (e) {
