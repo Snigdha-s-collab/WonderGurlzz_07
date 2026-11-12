@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import DocumentSplitViewer from './DocumentSplitViewer';
 
 function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
@@ -75,6 +76,7 @@ const MEDICAL_CATEGORIES = [
 
 export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, currentUser, onLogout }) {
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
+  const [selectedRecordForViewer, setSelectedRecordForViewer] = useState(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [categorySearch, setCategorySearch] = useState('');
   const dropdownRef = useRef(null);
@@ -163,7 +165,6 @@ export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, cu
     );
   });
 
-export default function MyUploads({ setPage, currentUser, onLogout }) {
   return (
     <div className="bg-[#faf8ff] text-[#131b2e] min-h-screen flex flex-col">
       {/* ── HEADER ── */}
@@ -180,7 +181,7 @@ export default function MyUploads({ setPage, currentUser, onLogout }) {
             </button>
             <div>
               <div className="text-white font-bold text-base leading-tight">OnePatient</div>
-              <div className="text-teal-300 text-[10px] font-medium leading-tight">My Uploads</div>
+              <div className="text-teal-300 text-[10px] font-medium leading-tight">My Uploads Repository</div>
             </div>
           </div>
 
@@ -192,12 +193,11 @@ export default function MyUploads({ setPage, currentUser, onLogout }) {
                 onClick={() => {
                   if (link === 'Home') setPage('landing');
                   else if (link === 'My Uploads') setPage('my-uploads');
-                  else if (link === 'Access QR') setPage('dashboard');
+                  else if (link === 'Access QR') setPage('access-qr');
                   else if (link === 'About Us') setPage('about-us');
                   else if (link === 'Ask MedBot') {
                     alert('Ask MedBot AI: You can consult regarding your uploaded prescriptions and health history.');
                   }
-                  else if (link === 'Access QR') setPage('access-qr');
                 }}
                 className={`text-sm font-medium transition-colors ${link === 'My Uploads' ? 'text-teal-300 font-bold' : 'text-white/80 hover:text-teal-300'
                   }`}
@@ -207,8 +207,16 @@ export default function MyUploads({ setPage, currentUser, onLogout }) {
             ))}
           </nav>
 
-          {/* User Section */}
+          {/* User profile & actions */}
           <div className="flex items-center gap-3">
+            <button
+              onClick={onOpenUploadModal}
+              className="teal-gradient-btn text-white font-bold text-xs px-4 py-2 rounded-full shadow-pill-glow flex items-center gap-1.5 hover:opacity-90 active:scale-95 transition-all"
+            >
+              <Icon name="add" className="text-base" />
+              <span>Upload New</span>
+            </button>
+
             <div className="hidden sm:flex flex-col items-center">
               <div className="w-8 h-8 rounded-full teal-gradient-btn flex items-center justify-center text-white text-sm">
                 <Icon name="person" className="text-lg" />
@@ -515,10 +523,18 @@ export default function MyUploads({ setPage, currentUser, onLogout }) {
                     </span>
                   </div>
 
-                  {/* Description */}
-                  <h3 className="font-bold text-sm text-slate-900 mb-2 leading-snug">
-                    {item.description}
+                  {/* Title / Description */}
+                  <h3 className="font-bold text-sm text-slate-900 mb-1 leading-snug">
+                    {item.title || item.description}
                   </h3>
+
+                  {/* Doctor Name */}
+                  {item.doctorName && (
+                    <div className="flex items-center gap-1.5 text-xs text-teal-800 font-medium mb-2">
+                      <Icon name="stethoscope" className="text-sm text-teal-600" />
+                      <span>{item.doctorName}</span>
+                    </div>
+                  )}
 
                   {/* Attached Files List */}
                   {item.files && item.files.length > 0 && (
@@ -553,20 +569,26 @@ export default function MyUploads({ setPage, currentUser, onLogout }) {
                     <span>{item.status || 'Verified Record'}</span>
                   </span>
                   <button
-                    onClick={() => alert(`Opening record: "${item.description}"`)}
-                    className="text-xs font-bold text-teal-800 hover:text-teal-600 hover:underline"
+                    onClick={() => setSelectedRecordForViewer(item)}
+                    className="text-xs font-bold text-teal-800 hover:text-teal-600 hover:underline flex items-center gap-1"
                   >
-                    View Details →
+                    <span>View Details & OCR</span>
+                    <Icon name="arrow_forward" className="text-sm" />
                   </button>
                 </div>
               </div>
             ))}
           </div>
         )}
-      {/* ── CLEAN EMPTY WORKSPACE FOR YOUR TEAMMATE ── */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 pt-28 pb-16 flex flex-col items-center justify-center">
-        {/* Placeholder workspace area */}
       </main>
+
+      {/* ── SPLIT SCREEN DOCUMENT & TRANSFORMER-BASED OCR VIEWER ── */}
+      {selectedRecordForViewer && (
+        <DocumentSplitViewer
+          record={selectedRecordForViewer}
+          onClose={() => setSelectedRecordForViewer(null)}
+        />
+      )}
     </div>
   );
 }

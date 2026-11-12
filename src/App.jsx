@@ -7,30 +7,11 @@ import MyUploads from './components/MyUploads';
 import UploadModal from './components/UploadModal';
 import AboutUs from './components/AboutUs';
 
-const INITIAL_UPLOADS = [];
-
-// Specific IDs and markers of seeded demo records to remove from existing storage
-const isDemoRecord = (item) => {
-  if (!item) return false;
-  if (item.id === 'upload-init-1' || item.id === 'upload-init-2') return true;
-  if (
-    item.description === 'Metformin 500mg Daily Prescription — Blood sugar monitoring after breakfast' &&
-    item.category === 'Endocrinology & Diabetes'
-  ) {
-    return true;
-  }
-  if (
-    item.description === 'Complete Lipid Panel & Fasting Glucose Comprehensive Pathology Report' &&
-    item.category === 'Laboratory & Pathology'
-  ) {
-    return true;
-  }
-  return false;
-};
 import AccessQRPage from './components/AccessQRPage';
 import DoctorPortalView from './components/DoctorPortalView';
+import { SEEDED_NEUROLOGY_RECORD, fetchRecordsFromSupabase, insertRecordToSupabase } from './lib/supabaseClient';
 
-const INITIAL_UPLOADS = [];
+const INITIAL_UPLOADS = [SEEDED_NEUROLOGY_RECORD];
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
@@ -55,19 +36,23 @@ export default function App() {
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
-  // Load user uploads or fall back to empty array []
+  // Load user uploads and ensure Neurology Prescription is available
   const [uploads, setUploads] = useState(() => {
     try {
       const stored = localStorage.getItem('onepatient_user_uploads');
       if (!stored) return INITIAL_UPLOADS;
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed)) {
-        // Remove only the seeded demo records, preserving genuine user uploads
-        const cleaned = parsed.filter((item) => !isDemoRecord(item));
-        if (cleaned.length !== parsed.length) {
-          localStorage.setItem('onepatient_user_uploads', JSON.stringify(cleaned));
+        // Ensure Neurology Prescription is present
+        const hasNeuro = parsed.some(
+          (item) => item.category === 'Neurology' || item.title === 'Neurology Prescription'
+        );
+        if (!hasNeuro) {
+          const withNeuro = [SEEDED_NEUROLOGY_RECORD, ...parsed];
+          localStorage.setItem('onepatient_user_uploads', JSON.stringify(withNeuro));
+          return withNeuro;
         }
-        return cleaned;
+        return parsed;
       }
       return INITIAL_UPLOADS;
     } catch (e) {
@@ -75,6 +60,19 @@ export default function App() {
       return INITIAL_UPLOADS;
     }
   });
+
+  // Query Supabase to sync remote database records on launch
+  useEffect(() => {
+    fetchRecordsFromSupabase().then((remoteRecords) => {
+      if (remoteRecords && remoteRecords.length > 0) {
+        setUploads((prev) => {
+          const existingIds = new Set(prev.map((r) => r.id));
+          const newOnes = remoteRecords.filter((r) => !existingIds.has(r.id));
+          return newOnes.length > 0 ? [...prev, ...newOnes] : prev;
+        });
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -121,7 +119,7 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Add new uploaded record and redirect to My Uploads
+  // Add new uploaded record, persist locally and push to Supabase
   const handleUploadSuccess = (newRecord) => {
     const updated = [newRecord, ...uploads];
     setUploads(updated);
@@ -130,6 +128,9 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
+    // Asynchronously insert to Supabase database table
+    insertRecordToSupabase(newRecord);
+
     // Navigate straight to the My Uploads panel
     navigateTo('my-uploads');
   };

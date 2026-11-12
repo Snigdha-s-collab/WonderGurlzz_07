@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import DocumentSplitViewer from './DocumentSplitViewer';
 
 function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
@@ -37,6 +38,7 @@ export default function DoctorPortalView({ setPage, uploads = [] }) {
   const { token, patient } = getHashParams();
 
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedRecordForViewer, setSelectedRecordForViewer] = useState(null);
 
   const filteredRecords = uploads.filter((item) => {
     return selectedCategory === 'All' || item.category === selectedCategory;
@@ -160,8 +162,6 @@ export default function DoctorPortalView({ setPage, uploads = [] }) {
               <button
                 onClick={() => {
                   setSelectedCategory('All');
-                  setSearchTerm('');
-                  setActiveQuery('');
                 }}
                 className="mt-4 text-xs font-bold text-teal-700 hover:underline"
               >
@@ -232,10 +232,11 @@ export default function DoctorPortalView({ setPage, uploads = [] }) {
                       <span>Immutable Provenance</span>
                     </span>
                     <button
-                      onClick={() => alert(`Reviewing clinical details for: "${item.title || item.description}"`)}
-                      className="text-xs font-bold text-teal-800 hover:text-teal-600 hover:underline"
+                      onClick={() => setSelectedRecordForViewer(item)}
+                      className="text-xs font-bold text-teal-800 hover:text-teal-600 hover:underline flex items-center gap-1"
                     >
-                      Open Document →
+                      <span>Open Document & AI OCR</span>
+                      <Icon name="arrow_forward" className="text-sm" />
                     </button>
                   </div>
                 </div>
@@ -244,6 +245,14 @@ export default function DoctorPortalView({ setPage, uploads = [] }) {
           )}
         </div>
       </main>
+
+      {/* ── SPLIT SCREEN DOCUMENT & TRANSFORMER-BASED OCR VIEWER ── */}
+      {selectedRecordForViewer && (
+        <DocumentSplitViewer
+          record={selectedRecordForViewer}
+          onClose={() => setSelectedRecordForViewer(null)}
+        />
+      )}
     </div>
   );
 }

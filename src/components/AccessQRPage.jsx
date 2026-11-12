@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
+import { saveQRTokenToSupabase } from '../lib/supabaseClient';
 
 function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
@@ -35,6 +36,8 @@ export default function AccessQRPage({ setPage, currentUser, onLogout }) {
         created: Date.now(),
       };
       localStorage.setItem('onepatient_active_tokens', JSON.stringify(activeTokens));
+      // Asynchronously store token to Supabase db
+      saveQRTokenToSupabase(activeTokens[uniqueToken]);
     } catch (e) {
       console.error(e);
     }
@@ -128,6 +131,10 @@ export default function AccessQRPage({ setPage, currentUser, onLogout }) {
                   if (link === 'Home') setPage('landing');
                   else if (link === 'My Uploads') setPage('my-uploads');
                   else if (link === 'Access QR') setPage('access-qr');
+                  else if (link === 'About Us') setPage('about-us');
+                  else if (link === 'Ask MedBot') {
+                    alert('Ask MedBot AI: You can consult regarding your uploaded prescriptions and health history.');
+                  }
                 }}
                 className={`text-sm font-medium transition-colors ${
                   link === 'Access QR' ? 'text-teal-300 font-bold' : 'text-white/80 hover:text-teal-300'

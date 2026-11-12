@@ -235,7 +235,7 @@ export default function AboutUs({ setPage, currentUser, onLogout, onOpenUploadMo
                 onClick={() => {
                   if (link === 'Home') setPage('landing');
                   else if (link === 'My Uploads') setPage('my-uploads');
-                  else if (link === 'Access QR') setPage('dashboard');
+                  else if (link === 'Access QR') setPage('access-qr');
                   else if (link === 'About Us') setPage('about-us');
                   else if (link === 'Ask MedBot') {
                     alert('Ask MedBot AI: You can consult regarding your uploaded prescriptions and health history.');
@@ -317,7 +317,7 @@ export default function AboutUs({ setPage, currentUser, onLogout, onOpenUploadMo
                 <span>Explore My Uploads</span>
               </button>
               <button
-                onClick={() => setPage('dashboard')}
+                onClick={() => setPage('access-qr')}
                 className="bg-white/10 hover:bg-white/20 border border-white/20 text-white font-semibold text-sm px-6 py-3 rounded-full backdrop-blur-md transition-colors inline-flex items-center gap-2"
               >
                 <Icon name="qr_code_2" className="text-lg text-teal-300" />

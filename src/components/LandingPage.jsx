@@ -39,10 +39,9 @@ export default function LandingPage({ setPage, currentUser, onLogout, onOpenUplo
                   } else if (link === 'My Uploads') {
                     setPage('my-uploads');
                   } else if (link === 'Access QR') {
-                    setPage('dashboard');
+                    setPage('access-qr');
                   } else if (link === 'About Us') {
                     setPage('about-us');
-                    setPage('access-qr');
                   } else if (link === 'Ask MedBot') {
                     alert('Ask MedBot AI: You can consult regarding your uploaded prescriptions and health history.');
                   }
@@ -111,10 +110,9 @@ export default function LandingPage({ setPage, currentUser, onLogout, onOpenUplo
                   } else if (link === 'My Uploads') {
                     setPage('my-uploads');
                   } else if (link === 'Access QR') {
-                    setPage('dashboard');
+                    setPage('access-qr');
                   } else if (link === 'About Us') {
                     setPage('about-us');
-                    setPage('access-qr');
                   } else if (link === 'Ask MedBot') {
                     alert('Ask MedBot AI: You can consult regarding your uploaded prescriptions and health history.');
                   }
