@@ -163,6 +163,7 @@ export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, cu
     );
   });
 
+export default function MyUploads({ setPage, currentUser, onLogout }) {
   return (
     <div className="bg-[#faf8ff] text-[#131b2e] min-h-screen flex flex-col">
       {/* ── HEADER ── */}
@@ -179,7 +180,7 @@ export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, cu
             </button>
             <div>
               <div className="text-white font-bold text-base leading-tight">OnePatient</div>
-              <div className="text-teal-300 text-[10px] font-medium leading-tight">My Uploads Repository</div>
+              <div className="text-teal-300 text-[10px] font-medium leading-tight">My Uploads</div>
             </div>
           </div>
 
@@ -196,6 +197,7 @@ export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, cu
                   else if (link === 'Ask MedBot') {
                     alert('Ask MedBot AI: You can consult regarding your uploaded prescriptions and health history.');
                   }
+                  else if (link === 'Access QR') setPage('access-qr');
                 }}
                 className={`text-sm font-medium transition-colors ${link === 'My Uploads' ? 'text-teal-300 font-bold' : 'text-white/80 hover:text-teal-300'
                   }`}
@@ -205,16 +207,8 @@ export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, cu
             ))}
           </nav>
 
-          {/* User profile & actions */}
+          {/* User Section */}
           <div className="flex items-center gap-3">
-            <button
-              onClick={onOpenUploadModal}
-              className="teal-gradient-btn text-white font-bold text-xs px-4 py-2 rounded-full shadow-pill-glow flex items-center gap-1.5 hover:opacity-90 active:scale-95 transition-all"
-            >
-              <Icon name="add" className="text-base" />
-              <span>Upload New</span>
-            </button>
-
             <div className="hidden sm:flex flex-col items-center">
               <div className="w-8 h-8 rounded-full teal-gradient-btn flex items-center justify-center text-white text-sm">
                 <Icon name="person" className="text-lg" />
@@ -569,6 +563,9 @@ export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, cu
             ))}
           </div>
         )}
+      {/* ── CLEAN EMPTY WORKSPACE FOR YOUR TEAMMATE ── */}
+      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 pt-28 pb-16 flex flex-col items-center justify-center">
+        {/* Placeholder workspace area */}
       </main>
     </div>
   );

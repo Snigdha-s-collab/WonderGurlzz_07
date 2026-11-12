@@ -42,6 +42,7 @@ export default function LandingPage({ setPage, currentUser, onLogout, onOpenUplo
                     setPage('dashboard');
                   } else if (link === 'About Us') {
                     setPage('about-us');
+                    setPage('access-qr');
                   } else if (link === 'Ask MedBot') {
                     alert('Ask MedBot AI: You can consult regarding your uploaded prescriptions and health history.');
                   }
@@ -113,6 +114,7 @@ export default function LandingPage({ setPage, currentUser, onLogout, onOpenUplo
                     setPage('dashboard');
                   } else if (link === 'About Us') {
                     setPage('about-us');
+                    setPage('access-qr');
                   } else if (link === 'Ask MedBot') {
                     alert('Ask MedBot AI: You can consult regarding your uploaded prescriptions and health history.');
                   }

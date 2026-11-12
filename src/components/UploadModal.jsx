@@ -20,7 +20,8 @@ const PROBLEM_CATEGORIES = [
 ];
 
 export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
-  const [description, setDescription] = useState('');
+  const [title, setTitle] = useState('');
+  const [doctorName, setDoctorName] = useState('');
   const [category, setCategory] = useState('');
   const [recordDate, setRecordDate] = useState(() => {
     const today = new Date();
@@ -48,8 +49,8 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     e.preventDefault();
     setError('');
 
-    if (!description.trim()) {
-      setError('Please enter a description for this medication/record.');
+    if (!title.trim()) {
+      setError('Please enter a heading/title for this record.');
       return;
     }
 
@@ -79,7 +80,9 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
 
     const newRecord = {
       id: 'upload-' + Date.now(),
-      description: description.trim(),
+      title: title.trim(),
+      description: title.trim(),
+      doctorName: doctorName.trim(),
       category: category,
       date: formattedDate,
       rawDate: recordDate,
@@ -96,7 +99,8 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     setTimeout(() => {
       onUploadSuccess(newRecord);
       setIsSubmitting(false);
-      setDescription('');
+      setTitle('');
+      setDoctorName('');
       setCategory('');
       setSelectedFiles([]);
       onClose();
@@ -135,23 +139,43 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
             </div>
           )}
 
-          {/* 1. Description of Medication / Condition */}
+          {/* 1. Title / Heading (Description) */}
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-              Description of Medication / Problem <span className="text-red-500">*</span>
+              Title / Heading <span className="text-red-500">*</span>
             </label>
-            <textarea
-              rows={3}
-              placeholder="e.g. Daily Metformin 500mg prescription, fasting glucose blood report, post-surgery follow-up summary..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all resize-none"
+            <input
+              type="text"
+              placeholder="e.g. Daily Metformin 500mg, Fasting Blood Glucose, Cardiac Checkup Report"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all font-medium"
               required
             />
           </div>
 
-          {/* 2. Category of Problems & 3. Date Row */}
+          {/* Doctor Name & Problem Category Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Doctor Name */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Doctor Name <span className="text-slate-400 font-normal lowercase">(optional)</span>
+              </label>
+              <div className="relative flex items-center">
+                <span className="absolute left-3.5 text-slate-400">
+                  <Icon name="stethoscope" className="text-base" />
+                </span>
+                <input
+                  type="text"
+                  placeholder="e.g. Dr. Rajiv Mehta"
+                  value={doctorName}
+                  onChange={(e) => setDoctorName(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all"
+                />
+              </div>
+            </div>
+
+            {/* Problem Category */}
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                 Category of Problem <span className="text-red-500">*</span>
@@ -175,20 +199,21 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
                 </div>
               </div>
             </div>
+          </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Date of Record <span className="text-red-500">*</span>
-              </label>
-              <div className="relative flex items-center">
-                <input
-                  type="date"
-                  value={recordDate}
-                  onChange={(e) => setRecordDate(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all cursor-pointer"
-                  required
-                />
-              </div>
+          {/* Date of Record */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+              Date of Record <span className="text-red-500">*</span>
+            </label>
+            <div className="relative flex items-center">
+              <input
+                type="date"
+                value={recordDate}
+                onChange={(e) => setRecordDate(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all cursor-pointer"
+                required
+              />
             </div>
           </div>
 
