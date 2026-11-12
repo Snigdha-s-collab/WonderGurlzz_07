@@ -1,0 +1,160 @@
+// Patient Data Constants for OnePatient Platform
+
+export const patientData = {
+  name: 'Eleanor Vance',
+  greeting: 'Eleanor',
+  dob: '14 Mar 1985',
+  bloodType: 'O+',
+  patientId: 'GLP-9041-K7-VERIFIED',
+  badgeId: 'GLP-8842-X9',
+  photo: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDkqpJqUfdZljm8iFdcDCKpBLxpJB2YguAA3qaGhBZovr2aJZh7OnMmNDt16U2uvjZnpe-vhfS-Om2IjnA03dL__YRbhmIb90xditCNXxakfmNxUrDWHWPZPXOqBjE-zdMgvGssB5OChJYJfue6jTLmv3wUlgPleBCy_ribQE7yI_73J-ea_0ww2u0W1xJWy-e6HWrj97G33Qj_-unX5RE1-66seWEM8FGoMnyNHiNE',
+  emergencyContact: {
+    name: 'Thomas Vance',
+    relation: 'Husband',
+    phone: '+1 (555) 019-2834',
+  },
+  stats: [
+    { value: '14', label: 'Records Linked' },
+    { value: '100%', label: 'Verified Source' },
+    { value: '3', label: 'Active Consents' },
+  ],
+};
+
+export const medications = [
+  {
+    id: 'med-1',
+    name: 'Metformin',
+    dosage: '500mg',
+    dueIn: 'Due in 25m',
+    dayOf: 42,
+    totalDays: 90,
+    progress: 46,
+    icon: 'medication',
+    color: 'text-teal-400',
+    bgColor: 'bg-teal-900',
+  },
+  {
+    id: 'med-2',
+    name: 'Atorvastatin',
+    dosage: '20mg',
+    dueIn: 'Ends in 3 days',
+    dayOf: null,
+    totalDays: null,
+    progress: null,
+    icon: 'pill',
+    color: 'text-amber-400',
+    bgColor: 'bg-amber-900/30',
+  },
+];
+
+export const consents = [
+  {
+    id: 'consent-1',
+    doctorName: 'Dr. Rajiv Mehta',
+    specialty: 'Cardiologist',
+    expires: 'Expires 4d',
+    scope: 'Full Medical History',
+    photo: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBaxgrqYkLVDJL4VvIwsX82oLKX2ri7uo_U3eBv1KAvlgcPVD5-UFpnag1vFTvxRoopPv4swyZYN5SDCF_8NC3_nkAWiPrKrqgZh-j2_WWj5JA3eJoBbAI2hhaQRup2pWmrfLMgKmlgblsqTzejeIHnSgb8ua70dTNQCd8CP-6kBfrktLwMCZtLv1K2Ss0W10Ag1uQiilyijoyu0aG1cyVGaXsE4EUJ44_mOOHpeqza',
+    expiresClass: 'text-amber-400',
+  },
+  {
+    id: 'consent-2',
+    doctorName: 'Dr. Sarah Jenkins',
+    specialty: 'Endocrinologist',
+    expires: 'Permanent',
+    scope: 'Lab Tests Only',
+    photo: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBkklw6-dqPuZ2CZoKWbYCuoCc6AONoPwLCtHZxDpNA_Fo_hnqiJxbjcZZbGhsuP74MlbOq5-iGHWPZPXOqBjE-zdMgvGssB5OChJYJfue6jTLmv3wUlgPleBCy_ribQE7yI_73J-ea_0ww2u0W1xJWy-e6HWrj97G33Qj_-unX5RE1-66seWEM8FGoMnyNHiNE',
+    expiresClass: 'text-green-400',
+  },
+];
+
+export const auditLogs = [
+  {
+    id: 'log-1',
+    type: 'access',
+    actor: 'Dr. Rajiv Mehta',
+    specialty: 'Cardiologist',
+    action: 'Viewed Full Medical History',
+    timestamp: '2026-11-12  09:14 AM',
+    icon: 'folder_shared',
+    iconColor: 'text-teal-400',
+    bgColor: 'bg-teal-900/40',
+    status: 'Authorised',
+    statusColor: 'bg-green-500/20 text-green-400',
+    facility: 'Apollo Hospitals, Mumbai',
+  },
+  {
+    id: 'log-2',
+    type: 'upload',
+    actor: 'Eleanor Vance (Patient)',
+    specialty: 'Self-upload',
+    action: 'Uploaded Lab Report — HbA1c',
+    timestamp: '2026-11-11  04:30 PM',
+    icon: 'science',
+    iconColor: 'text-blue-400',
+    bgColor: 'bg-blue-900/30',
+    status: 'Verified',
+    statusColor: 'bg-blue-500/20 text-blue-400',
+    facility: 'SRL Diagnostics',
+  },
+  {
+    id: 'log-3',
+    type: 'consent',
+    actor: 'Dr. Sarah Jenkins',
+    specialty: 'Endocrinologist',
+    action: 'Access Consent Granted (Lab Only)',
+    timestamp: '2026-11-10  11:00 AM',
+    icon: 'health_and_safety',
+    iconColor: 'text-green-400',
+    bgColor: 'bg-green-900/30',
+    status: 'Active',
+    statusColor: 'bg-green-500/20 text-green-400',
+    facility: 'Medanta — The Medicity',
+  },
+  {
+    id: 'log-4',
+    type: 'emergency',
+    actor: 'ER Team — AIIMS Delhi',
+    specialty: 'Emergency',
+    action: 'Break-Glass Protocol Activated',
+    timestamp: '2026-11-08  02:15 AM',
+    icon: 'e911_emergency',
+    iconColor: 'text-red-400',
+    bgColor: 'bg-red-900/30',
+    status: 'Flagged',
+    statusColor: 'bg-red-500/20 text-red-400',
+    facility: 'AIIMS New Delhi',
+  },
+  {
+    id: 'log-5',
+    type: 'revoke',
+    actor: 'Eleanor Vance (Patient)',
+    specialty: 'Self-action',
+    action: 'Revoked Consent — Dr. Kumar (Radiologist)',
+    timestamp: '2026-11-07  06:45 PM',
+    icon: 'security',
+    iconColor: 'text-orange-400',
+    bgColor: 'bg-orange-900/30',
+    status: 'Revoked',
+    statusColor: 'bg-orange-500/20 text-orange-400',
+    facility: 'Patient Portal',
+  },
+];
+
+export const services = [
+  'Cardiology',
+  'Anaesthesiology',
+  'Bariatric Surgery',
+  'Blood Bank',
+  'Endocrinology & Diabetology',
+  'Medical Oncology',
+];
+
+export const navLinks = [
+  'Home',
+  'My Uploads',
+  'Access QR',
+  'Ask MedBot',
+  'About Us',
+];
+
