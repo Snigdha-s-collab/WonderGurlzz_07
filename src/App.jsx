@@ -23,6 +23,7 @@ import {
   subscribeToMedicalRecords,
   unsubscribeFromMedicalRecords,
 } from './lib/supabaseClient';
+import { API_BASE_URL } from './config/api';
 
 const INITIAL_UPLOADS = [];
 
@@ -453,7 +454,7 @@ const handleOpenMedBot = (uploadId = null) => {
       await insertRecordToSupabase(newRecord);
 
       // Trigger asynchronous RAG Ingestion in the backend
-      fetch(`http://127.0.0.1:8000/api/records/${newRecord.id}/ingest`, {
+      fetch(`${API_BASE_URL}/api/records/${newRecord.id}/ingest`, {
         method: 'POST',
       }).catch((err) => console.warn('RAG auto-ingest notice:', err.message));
     } catch (e) {

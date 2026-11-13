@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { updateRecordOCRInSupabase } from '../lib/supabaseClient';
+import { updateRecordOCRInSupabase, getSignedDocumentUrl } from '../lib/supabaseClient';
+import { API_BASE_URL } from '../config/api';
 
 function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
@@ -36,9 +37,7 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  if (!record) return null;
-
-  const filesList = Array.isArray(record.files) ? record.files : [];
+  const filesList = Array.isArray(record?.files) ? record.files : [];
   const currentFile = filesList[selectedFileIndex] || filesList[0] || null;
 
   const [signedUrl, setSignedUrl] = useState('');
@@ -68,6 +67,8 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
       isMounted = false;
     };
   }, [currentFile]);
+
+  if (!record) return null;
 
   // Resolve actual image URL from user-uploaded file (Signed URL, Base64 dataUrl, or remote url)
   const imageSource = signedUrl || currentFile?.dataUrl || currentFile?.url || '';
@@ -105,7 +106,7 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
         });
       }
 
-      const response = await fetch('http://127.0.0.1:8000/api/ocr/analyze', {
+      const response = await fetch(`${API_BASE_URL}/api/ocr/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

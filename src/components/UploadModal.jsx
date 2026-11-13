@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { uploadMedicalFileToStorage } from '../lib/supabaseClient';
 
 function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;

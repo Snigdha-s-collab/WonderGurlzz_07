@@ -369,7 +369,7 @@ export default function AskMedBot({
         suggestedFollowUps: response.suggestedFollowUps || [],
         reminderProposal: response.reminderProposal || null,
         reminderAdded: false,
-        engine: response.engine || `Qwen 2.5 7B AI Agent`,
+        engine: response.engine || 'AI Agent',
         toolsUsed: response.toolsUsed || [],
       };
 
@@ -382,10 +382,10 @@ export default function AskMedBot({
           id: 'bot-err-' + Date.now(),
           role: 'assistant',
           status: 'grounded',
-          engine: 'Qwen 2.5 7B AI Engine',
+          engine: 'AI Agent',
           text:
             'I encountered a temporary connection glitch while synthesizing clinical knowledge. Please try asking your question again or check your model settings.',
-          suggestedFollowUps: ['How should I take Metformin 500mg?'],
+          suggestedFollowUps: ['What medicines did the doctor prescribe?'],
         },
       ]);
     } finally {
@@ -537,11 +537,11 @@ export default function AskMedBot({
                   {/* SPECIFIED MODEL BADGE */}
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-teal-400/20 text-teal-200 text-[11px] font-bold border border-teal-300/30 shadow-xs">
                     <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
-                    <span>Model: Qwen 2.5 7B Instruct</span>
+                    <span>Model: Gemini RAG</span>
                   </span>
                 </div>
                 <p className="text-[11px] text-teal-100/80 truncate mt-0.5">
-                  AI-Powered Patient Query Clarification Assistant • Clinical Knowledge Synthesis
+                  AI-Powered Patient Query Clarification Assistant • Grounded in Your Uploaded Records
                 </p>
               </div>
             </div>
@@ -660,8 +660,8 @@ export default function AskMedBot({
             {[
               'Who is my doctor?',
               'What are the problems in my report?',
-              'Explain my report and prescribed medicines',
-              'When should I take Neargon LG and Neuron?',
+              'What medicines did the doctor prescribe?',
+              'When should I take my medications?',
               'What instructions did my doctor give?',
               'What should I do if I miss a dose?',
               'Do I have any documented allergies?',
@@ -706,7 +706,7 @@ export default function AskMedBot({
           {/* Model Specification & Clinical Guidance Footer */}
           <div className="bg-slate-50 px-4 py-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
             <span>
-              ⚡ Powered by <strong>Qwen 2.5 7B AI Agent</strong> • Clinical Evidence Synthesis
+              ⚡ Powered by <strong>Gemini RAG</strong> • Grounded in Your Uploaded Records
             </span>
             <span className="hidden sm:inline">
               For individualized prescription changes or acute emergencies, always consult your physician.

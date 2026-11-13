@@ -8,8 +8,14 @@
 // - search_records(query): keyword search over extracted items and doctor notes
 // - get_doctor_instructions(): clinical and dietary advice written by doctor
 // - correlate_report_with_medications(): analyzes report findings & links to prescribed medications
+//
+// NOTE: The primary answer path is the backend Gemini RAG service (/api/medbot/chat), which is
+// strictly grounded in the patient's uploaded documents via vector search. The local "SQL tool"
+// helpers below are heuristic fallbacks ONLY for when the backend is unreachable. They must
+// never present medication or diagnosis data that is not present in the patient's own records.
 
 import { supabase, fetchRecordsFromSupabase } from '../lib/supabaseClient';
+import { API_BASE_URL } from '../config/api';
 
 export const DEFAULT_QWEN_MODEL = 'qwen/qwen-2.5-7b-instruct';
 export const DEFAULT_QWEN_BASE_URL = 'https://openrouter.ai/api/v1';
@@ -212,29 +218,16 @@ export async function get_doctor_details(customRecords = null) {
     const docKey = cleanDoc.toLowerCase();
 
     if (!doctorsMap.has(docKey)) {
-      let specialty = record.category || 'General Practice';
-      let credentials = 'Registered Medical Practitioner';
-      let clinic = 'Clinical Facility';
-      let focus = record.title || record.description || 'Clinical Consultation';
-
-      if (docKey.includes('sudarshan')) {
-        specialty = 'Neurology & Ayurvedic Medicine';
-        credentials = 'Dr. A. Sudarshan Bhat, M.D. (Ayu) • Reg. No. 15051';
-        clinic = 'Vishnu Ayurvedalaya & Panchakarma Clinic';
-        focus = 'Neurological Care, Cervical & Peripheral Nerve Support';
-      } else if (docKey.includes('neelkanta')) {
-        specialty = 'General Medicine';
-        credentials = 'Dr. Neelkanta, Physician';
-        clinic = 'General Medical Clinic';
-        focus = 'General Health, Metabolic Maintenance & Wellness';
-      }
+      // Doctor details come only from the record's own OCR data; no hardcoded doctor profiles.
+      const rx = record.ocrData?.prescription_data || {};
+      const report = record.ocrData?.report_data || {};
 
       doctorsMap.set(docKey, {
         name: cleanDoc.startsWith('Dr') ? cleanDoc : `Dr. ${cleanDoc}`,
-        specialty,
-        credentials,
-        clinic,
-        focus,
+        specialty: record.category || 'General Practice',
+        credentials: rx.doctor_name || report.referring_physician || 'Registered Medical Practitioner',
+        clinic: rx.clinic_or_hospital || report.laboratory_or_imaging_center || 'Clinical Facility',
+        focus: record.title || record.description || 'Clinical Consultation',
         associatedRecords: [
           {
             title: record.title || record.description,
@@ -258,181 +251,67 @@ export async function get_doctor_details(customRecords = null) {
 
 /**
  * SQL Tool: get_medications()
- * Retrieves active and past medications, with start date, change date, and stop dates.
+ * Retrieves medications strictly from the OCR data of the patient's own uploaded records.
+ * Never fabricates medicines, dosages, or schedules not present in the records.
  */
 export async function get_medications(customRecords = null) {
   const records = await get_database_records(customRecords);
   const medications = [];
 
   for (const record of records) {
-    // 1. Extract from OCR structured medications if available
+    // 1. Structured medications from backend OCR (prescription_data.medicines)
+    const rxMeds = record.ocrData?.prescription_data?.medicines;
+    if (Array.isArray(rxMeds)) {
+      for (const sm of rxMeds) {
+        if (!sm?.name) continue;
+        medications.push({
+          id: `med-${(sm.name || 'rx').toLowerCase().replace(/\s+/g, '-')}-${record.id}`,
+          name: sm.name,
+          dosage: sm.strength || sm.dosage || 'As prescribed',
+          frequency: sm.frequency || 'As prescribed',
+          timeScheduled: sm.timing_instructions || sm.frequency || '',
+          foodRule: sm.timing_instructions || '',
+          status: 'Active',
+          startDate: record.date || '',
+          duration: sm.duration || 'As prescribed',
+          changeOrStopDate: sm.follow_up_advice || record.ocrData?.prescription_data?.follow_up_advice || '',
+          prescriber: sm.doctor_name || record.ocrData?.prescription_data?.doctor_name || record.doctorName || '',
+          indication: (sm.diagnosis_or_symptoms || record.ocrData?.prescription_data?.diagnosis_or_symptoms || []).join(', '),
+          sourceRecord: record.title || record.description,
+        });
+      }
+    }
+
+    // 2. Legacy frontend OCR shape (structuredMedications)
     if (record.ocrData?.structuredMedications && Array.isArray(record.ocrData.structuredMedications)) {
       for (const sm of record.ocrData.structuredMedications) {
+        if (!sm?.name) continue;
         medications.push({
           id: `med-${(sm.name || 'rx').toLowerCase().replace(/\s+/g, '-')}-${record.id}`,
           name: sm.name,
           dosage: sm.dosage || 'As prescribed',
-          frequency: sm.frequency || 'Daily',
-          timeScheduled: sm.timing || sm.frequency || 'Daily',
-          foodRule: sm.safetyAlert || sm.foodInstruction || 'Take with water after meals',
+          frequency: sm.frequency || 'As prescribed',
+          timeScheduled: sm.timing || sm.frequency || '',
+          foodRule: sm.safetyAlert || sm.foodInstruction || '',
           status: 'Active',
-          startDate: record.date || 'Nov 13, 2026',
-          duration: sm.duration || '30 days',
-          changeOrStopDate: 'Follow-up review with specialist in 4 weeks',
-          prescriber: record.doctorName || 'Dr. Sudarshan Bhat',
-          indication: sm.purpose || `${record.category || 'Neurology'} Care`,
+          startDate: record.date || '',
+          duration: sm.duration || 'As prescribed',
+          changeOrStopDate: '',
+          prescriber: record.doctorName || '',
+          indication: sm.purpose || '',
           sourceRecord: record.title || record.description,
         });
       }
-    }
-
-    const fullText = [record.title, record.description, record.prescriptionText]
-      .filter(Boolean)
-      .join('\n');
-
-    const lowerText = fullText.toLowerCase();
-
-    // Check for Dr. Sudarshan Bhat's specific medications if not already in structured OCR
-    if (lowerText.includes('sudarshan') || lowerText.includes('neargon') || lowerText.includes('neuron') || lowerText.includes('neo')) {
-      if (!medications.some((m) => m.name.toLowerCase() === 'neargon lg')) {
-        medications.push({
-          id: `med-neargon-${record.id}`,
-          name: 'Neargon LG',
-          dosage: '0 - 1 - 0 (30 tabs)',
-          frequency: 'Once daily (Afternoon / Midday)',
-          timeScheduled: '01:30 PM (After Lunch)',
-          foodRule: 'Take 1 tablet after afternoon lunch with water',
-          status: 'Active',
-          startDate: record.date || 'Nov 13, 2026',
-          duration: '30 days',
-          changeOrStopDate: 'Review after 30 days with Dr. Sudarshan Bhat',
-          prescriber: record.doctorName || 'Dr. Sudarshan Bhat',
-          indication: 'Neurological & Cervical Nerve Pain Support',
-          sourceRecord: record.title || record.description,
-        });
-      }
-
-      if (!medications.some((m) => m.name.toLowerCase() === 'neuron')) {
-        medications.push({
-          id: `med-neuron-${record.id}`,
-          name: 'Neuron',
-          dosage: '1 - 0 - 1 (60 tabs)',
-          frequency: 'Twice daily (Morning & Night)',
-          timeScheduled: '08:30 AM & 09:30 PM',
-          foodRule: 'Take 1 tablet after meals with warm water',
-          status: 'Active',
-          startDate: record.date || 'Nov 13, 2026',
-          duration: '30 days',
-          changeOrStopDate: 'Review after 30 days with Dr. Sudarshan Bhat',
-          prescriber: record.doctorName || 'Dr. Sudarshan Bhat',
-          indication: 'Nerve Regeneration, Cellular Nourishment & Neuro-Vitality',
-          sourceRecord: record.title || record.description,
-        });
-      }
-
-      if (!medications.some((m) => m.name.toLowerCase() === 'neo')) {
-        medications.push({
-          id: `med-neo-${record.id}`,
-          name: 'Neo',
-          dosage: '1 - 0 - 1 (60 tabs)',
-          frequency: 'Twice daily (Morning & Night)',
-          timeScheduled: '08:30 AM & 09:30 PM',
-          foodRule: 'Take 1 tablet after meals with warm water',
-          status: 'Active',
-          startDate: record.date || 'Nov 13, 2026',
-          duration: '30 days',
-          changeOrStopDate: 'Review after 30 days with Dr. Sudarshan Bhat',
-          prescriber: record.doctorName || 'Dr. Sudarshan Bhat',
-          indication: 'Neuro-Muscular Strength & Cellular Rejuvenation',
-          sourceRecord: record.title || record.description,
-        });
-      }
-
-      if (!medications.some((m) => m.name.toLowerCase().includes('mahanarayan'))) {
-        medications.push({
-          id: `med-mahanarayan-${record.id}`,
-          name: 'Mahanarayan Taila (Oil)',
-          dosage: 'External Application',
-          frequency: 'As needed (PRN)',
-          timeScheduled: 'Morning or Bedtime',
-          foodRule: 'Gentle external massage on stiff muscles or joints (do not ingest)',
-          status: 'Active',
-          startDate: record.date || 'Nov 13, 2026',
-          duration: 'As needed',
-          changeOrStopDate: 'Use until stiffness subsides',
-          prescriber: record.doctorName || 'Dr. Sudarshan Bhat',
-          indication: 'Relief of Nerve Stiffness & Muscular Aches',
-          sourceRecord: record.title || record.description,
-        });
-      }
-    }
-
-    // Check for Dr. Neelkanta's General Health Regimen
-    if (lowerText.includes('neelkanta') || (record.category === 'General Medicine' && !medications.some((m) => m.prescriber.includes('Neelkanta')))) {
-      medications.push({
-        id: `med-gen-neelkanta-${record.id}`,
-        name: 'General Maintenance & Health Regimen',
-        dosage: 'Daily routine',
-        frequency: 'Daily with meals',
-        timeScheduled: 'Morning & Evening',
-        foodRule: 'Balanced diet, stay well-hydrated, avoid excessive greasy/sugary foods',
-        status: 'Active',
-        startDate: record.date || 'Nov 12, 2026',
-        duration: 'Ongoing',
-        changeOrStopDate: 'Periodic routine medical follow-up',
-        prescriber: record.doctorName || 'Dr. Neelkanta',
-        indication: 'General Health & Metabolic Wellness',
-        sourceRecord: record.title || record.description,
-      });
-    }
-
-    // Check for Metformin
-    if (lowerText.includes('metformin')) {
-      const dosageMatch = fullText.match(/\b(\d+(?:\.\d+)?\s*mg)\b/i);
-      medications.push({
-        id: `med-metformin-${record.id}`,
-        name: 'Metformin',
-        dosage: dosageMatch ? dosageMatch[1] : '500mg',
-        frequency: 'Once daily after breakfast',
-        timeScheduled: '08:00 AM',
-        foodRule: 'After warm breakfast with water',
-        status: 'Active',
-        startDate: record.date || 'Recent',
-        duration: '90 days',
-        changeOrStopDate: 'Scheduled completion of 90-day course',
-        prescriber: record.doctorName || 'Prescribing Doctor',
-        indication: 'Glycemic Control',
-        sourceRecord: record.title || record.description,
-      });
-    }
-
-    // Check for Atorvastatin
-    if (lowerText.includes('atorvastatin')) {
-      const dosageMatch = fullText.match(/\b(\d+(?:\.\d+)?\s*mg)\b/i);
-      medications.push({
-        id: `med-atorvastatin-${record.id}`,
-        name: 'Atorvastatin',
-        dosage: dosageMatch ? dosageMatch[1] : '20mg',
-        frequency: 'Once daily at bedtime',
-        timeScheduled: '10:00 PM',
-        foodRule: 'With water at bedtime (avoid grapefruit)',
-        status: 'Active',
-        startDate: record.date || 'Recent',
-        duration: '30 days',
-        changeOrStopDate: 'Scheduled 30-day review',
-        prescriber: record.doctorName || 'Prescribing Doctor',
-        indication: 'Cardiovascular Protection & Lipid Regulation',
-        sourceRecord: record.title || record.description,
-      });
     }
   }
 
-  // De-duplicate medications by name
+  // De-duplicate medications by name + strength
   const uniqueMeds = [];
   const seenNames = new Set();
   for (const m of medications) {
-    if (!seenNames.has(m.name.toLowerCase())) {
-      seenNames.add(m.name.toLowerCase());
+    const key = `${(m.name || '').toLowerCase()}__${(m.dosage || '').toLowerCase()}`;
+    if (!seenNames.has(key)) {
+      seenNames.add(key);
       uniqueMeds.push(m);
     }
   }
@@ -442,13 +321,14 @@ export async function get_medications(customRecords = null) {
 
 /**
  * SQL Tool: get_allergies()
- * Returns documented allergies: documented, explicitly negative (NKDA), or not documented.
+ * Returns documented allergies from the patient's records: documented, explicitly
+ * negative (NKDA), or not documented. Never claims NKDA unless a record states it.
  */
 export async function get_allergies(customRecords = null) {
   const records = await get_database_records(customRecords);
-  let allergyStatus = 'explicitly_negative';
+  let allergyStatus = 'not_documented';
   let documentedAllergies = [];
-  let notes = 'No Known Drug Allergies (NKDA) documented across active clinical records.';
+  let notes = 'No allergy information is documented in your uploaded records.';
 
   for (const record of records) {
     const text = [record.title, record.description, record.prescriptionText]
@@ -479,86 +359,79 @@ export async function get_allergies(customRecords = null) {
     summary:
       allergyStatus === 'documented'
         ? `Documented Allergies: ${documentedAllergies.join(', ')}`
-        : 'No Known Drug Allergies (NKDA) are documented in your medical records.',
+        : allergyStatus === 'explicitly_negative'
+          ? 'No Known Drug Allergies (NKDA) are documented in your medical records.'
+          : 'Allergy status is not documented in your uploaded medical records.',
     notes,
   };
 }
 
 /**
  * SQL Tool: get_conditions()
- * Returns diagnosed medical conditions and clinical history from patient records.
+ * Returns clinical findings and diagnoses strictly from the OCR data of the patient's own records.
  */
 export async function get_conditions(customRecords = null) {
   const records = await get_database_records(customRecords);
   const conditions = [];
 
   for (const record of records) {
-    const text = [record.title, record.description, record.category, record.doctorName]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
+    const rx = record.ocrData?.prescription_data || {};
+    const report = record.ocrData?.report_data || {};
+    const discharge = record.ocrData?.discharge_summary_data || {};
 
-    // Neurology / Dr. Sudarshan Bhat
-    if (text.includes('neuro') || text.includes('sudarshan') || text.includes('neargon') || text.includes('neuron')) {
+    // Diagnoses / symptoms noted on prescriptions
+    const diagnoses = Array.isArray(rx.diagnosis_or_symptoms) ? rx.diagnosis_or_symptoms : [];
+    for (const d of diagnoses) {
+      if (!d) continue;
       conditions.push({
-        condition: 'Neurological Evaluation & Nerve Support (Cervical / Peripheral)',
-        status: 'Active / Under Medical Management',
-        diagnosedOrMonitoredBy: record.doctorName || 'Dr. Sudarshan Bhat',
-        dateDocumented: record.date || record.timestamp || 'Nov 13, 2026',
-        category: 'Neurology',
-        notes:
-          'Evaluated by Dr. Sudarshan Bhat. Managed with Neargon LG (0-1-0), Neuron (1-0-1), Neo (1-0-1), and Mahanarayan Oil for nerve nourishment, pain modulation, and muscular mobility.',
+        condition: d,
+        status: 'Documented Finding',
+        diagnosedOrMonitoredBy: rx.doctor_name || record.doctorName || '',
+        dateDocumented: rx.date_of_consultation || record.date || record.timestamp || '',
+        category: record.category || 'General',
+        notes: record.ocrData?.summary || '',
       });
     }
 
-    // General Medicine / Dr. Neelkanta
-    if (text.includes('neelkanta') || text.includes('general medicine') || text.includes('general medication')) {
+    // Discharge diagnoses
+    const dischargeDiagnoses = Array.isArray(discharge.final_diagnoses) ? discharge.final_diagnoses : [];
+    for (const d of dischargeDiagnoses) {
+      if (!d) continue;
       conditions.push({
-        condition: 'General Health & Routine Metabolic Wellness',
-        status: 'Active / Routine Monitoring',
-        diagnosedOrMonitoredBy: record.doctorName || 'Dr. Neelkanta',
-        dateDocumented: record.date || record.timestamp || 'Nov 12, 2026',
-        category: 'General Medicine',
-        notes:
-          'Consultation under Dr. Neelkanta. Prescribed daily maintenance regimen, nutritional hydration, and baseline vital monitoring.',
+        condition: d,
+        status: 'Documented at Discharge',
+        diagnosedOrMonitoredBy: discharge.attending_physician || record.doctorName || '',
+        dateDocumented: discharge.discharge_date || record.date || '',
+        category: 'Discharge Summary',
+        notes: discharge.hospital_course_summary || '',
       });
     }
 
-    // Diabetes / Glucose
-    if (text.includes('diabetes') || text.includes('blood sugar') || text.includes('glucose') || text.includes('metformin')) {
+    // Report conclusions / impressions
+    const conclusions = Array.isArray(report.conclusions_or_impression) ? report.conclusions_or_impression : [];
+    for (const d of conclusions) {
+      if (!d) continue;
       conditions.push({
-        condition: 'Type 2 Diabetes Mellitus / Glycemic Management',
-        status: 'Active / Managed',
-        diagnosedOrMonitoredBy: record.doctorName || 'Attending Physician',
-        dateDocumented: record.date || 'Recent',
-        category: 'Endocrinology & Diabetes',
-        notes: 'Managed with Metformin daily after breakfast.',
-      });
-    }
-
-    // Lipids / Cholesterol
-    if (text.includes('lipid') || text.includes('cholesterol') || text.includes('atorvastatin')) {
-      conditions.push({
-        condition: 'Dyslipidemia / Borderline High Cholesterol',
-        status: 'Active / Under Medical Management',
-        diagnosedOrMonitoredBy: record.doctorName || 'Attending Physician',
-        dateDocumented: record.date || 'Recent',
-        category: 'Cardiology & Lipid Health',
-        notes: 'Managed with Atorvastatin at bedtime.',
+        condition: d,
+        status: 'Report Impression',
+        diagnosedOrMonitoredBy: report.referring_physician || record.doctorName || '',
+        dateDocumented: report.report_date || record.date || '',
+        category: record.category || 'Medical Report',
+        notes: record.ocrData?.summary || '',
       });
     }
   }
 
-  // Fallback if records exist but didn't match specific keywords
+  // Fallback: records exist but OCR yielded no explicit diagnoses — report the record titles only
   if (conditions.length === 0 && records.length > 0) {
     for (const record of records) {
       conditions.push({
-        condition: `${record.category || 'Clinical'} Evaluation — ${record.title || record.description || 'Health Record'}`,
+        condition: `${record.category || 'Clinical'} Record — ${record.title || record.description || 'Health Record'}`,
         status: 'Documented Record',
-        diagnosedOrMonitoredBy: record.doctorName || 'Consulting Physician',
-        dateDocumented: record.date || record.timestamp || 'Recent',
+        diagnosedOrMonitoredBy: record.doctorName || '',
+        dateDocumented: record.date || record.timestamp || '',
         category: record.category || 'General Practice',
-        notes: `Clinical entry documented on ${record.date || record.timestamp || 'record'}.`,
+        notes: record.ocrData?.summary || `Clinical entry documented on ${record.date || record.timestamp || 'record'}.`,
       });
     }
   }
@@ -578,89 +451,43 @@ export async function get_conditions(customRecords = null) {
 
 /**
  * SQL Tool: get_lab_results(test_name)
- * Returns lab results, test values, normal ranges, and trends from pathology records.
+ * Returns lab test values strictly from the OCR data of the patient's own uploaded reports.
  */
 export async function get_lab_results(testName = null, customRecords = null) {
   const records = await get_database_records(customRecords);
   const allLabTests = [];
 
   for (const record of records) {
-    const text = [record.title, record.description, record.category]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
+    const report = record.ocrData?.report_data || {};
+    const measurements = Array.isArray(report.measurements)
+      ? report.measurements
+      : Array.isArray(report.test_results)
+        ? report.test_results
+        : [];
 
-    if (text.includes('lipid') || text.includes('glucose') || text.includes('pathology') || text.includes('srl') || text.includes('lab')) {
-      allLabTests.push(
-        {
-          testName: 'Fasting Blood Glucose',
-          value: '108 mg/dL',
-          unit: 'mg/dL',
-          normalRange: '70 – 99 mg/dL',
-          status: 'Borderline High (Impaired Fasting Glucose)',
-          date: record.date || 'Nov 06, 2026',
-          labFacility: 'SRL Diagnostics',
-          doctor: record.doctorName || 'Dr. Sarah Jenkins',
-          advice: 'Coordinate morning blood sugar check with breakfast Metformin schedule.',
-        },
-        {
-          testName: 'Total Cholesterol',
-          value: '210 mg/dL',
-          unit: 'mg/dL',
-          normalRange: '< 200 mg/dL',
-          status: 'Borderline High',
-          date: record.date || 'Nov 06, 2026',
-          labFacility: 'SRL Diagnostics',
-          doctor: record.doctorName || 'Dr. Sarah Jenkins',
-          advice: 'Currently managed with bedtime Atorvastatin 20mg.',
-        },
-        {
-          testName: 'LDL Cholesterol ("Bad" Cholesterol)',
-          value: '132 mg/dL',
-          unit: 'mg/dL',
-          normalRange: '< 100 mg/dL',
-          status: 'Elevated (Target < 100 mg/dL)',
-          date: record.date || 'Nov 06, 2026',
-          labFacility: 'SRL Diagnostics',
-          doctor: record.doctorName || 'Dr. Sarah Jenkins',
-          advice: 'Atorvastatin prescribed to reduce LDL synthesis overnight.',
-        },
-        {
-          testName: 'HDL Cholesterol ("Good" Cholesterol)',
-          value: '48 mg/dL',
-          unit: 'mg/dL',
-          normalRange: '> 40 mg/dL (Normal)',
-          status: 'Normal',
-          date: record.date || 'Nov 06, 2026',
-          labFacility: 'SRL Diagnostics',
-          doctor: record.doctorName || 'Dr. Sarah Jenkins',
-          advice: 'Cardioprotective level within acceptable clinical range.',
-        },
-        {
-          testName: 'Triglycerides',
-          value: '160 mg/dL',
-          unit: 'mg/dL',
-          normalRange: '< 150 mg/dL',
-          status: 'Borderline Elevated',
-          date: record.date || 'Nov 06, 2026',
-          labFacility: 'SRL Diagnostics',
-          doctor: record.doctorName || 'Dr. Sarah Jenkins',
-          advice: 'Low refined carbohydrates and regular light exercise recommended.',
-        }
-      );
+    for (const t of measurements) {
+      if (!t) continue;
+      const pName = t.parameter || t.test_name || 'Test';
+      const pVal = t.value || '';
+      const pUnit = t.unit || '';
+      allLabTests.push({
+        testName: pName,
+        value: pUnit ? `${pVal} ${pUnit}` : pVal,
+        unit: pUnit,
+        normalRange: t.reference_range || t.normal_range || 'N/A',
+        status: t.status || '',
+        date: report.report_date || record.date || '',
+        labFacility: report.laboratory_or_imaging_center || '',
+        doctor: report.referring_physician || record.doctorName || '',
+        advice: '',
+      });
     }
   }
 
-  if (testName && typeof testName === 'string') {
+  if (testName && typeof testName === 'string' && allLabTests.length > 0) {
     const q = testName.toLowerCase().trim();
     if (q !== 'all' && q !== '') {
-      const filtered = allLabTests.filter(
-        (t) =>
-          t.testName.toLowerCase().includes(q) ||
-          (q.includes('sugar') && t.testName.toLowerCase().includes('glucose')) ||
-          (q.includes('cholesterol') && t.testName.toLowerCase().includes('cholesterol')) ||
-          (q.includes('lipid') && (t.testName.toLowerCase().includes('cholesterol') || t.testName.toLowerCase().includes('triglycerides')))
-      );
+      const filtered = allLabTests.filter((t) => t.testName.toLowerCase().includes(q));
       if (filtered.length > 0) return filtered;
     }
   }
@@ -709,82 +536,54 @@ export async function search_records(query, customRecords = null) {
 
 /**
  * SQL Tool: get_doctor_instructions()
- * Extracts specific advice written by doctors (like "avoid dairy", food instructions, timing rules).
+ * Extracts advice, lifestyle instructions, and medication timing instructions
+ * strictly from the OCR data of the patient's own records.
  */
 export async function get_doctor_instructions(customRecords = null) {
   const records = await get_database_records(customRecords);
   const instructions = [];
 
   for (const record of records) {
-    const fullText = [record.title, record.description, record.prescriptionText]
-      .filter(Boolean)
-      .join('\n');
+    const rx = record.ocrData?.prescription_data || {};
+    const doctor = rx.doctor_name || record.doctorName || 'Prescribing Doctor';
+    const sourceDate = rx.date_of_consultation || record.date || record.timestamp || '';
 
-    const doctor = record.doctorName || 'Prescribing Doctor';
-    const lowerText = fullText.toLowerCase();
-
-    // Dr. Sudarshan Bhat / Neurology Instructions
-    if (lowerText.includes('sudarshan') || lowerText.includes('neargon') || lowerText.includes('neuron') || lowerText.includes('neo') || record.category === 'Neurology') {
-      instructions.push({
-        doctor: record.doctorName || 'Dr. Sudarshan Bhat',
-        topic: 'Neuron & Neo Timing (Morning & Night)',
-        instruction: 'Take 1 tablet of Neuron and 1 tablet of Neo twice daily (08:30 AM & 09:30 PM) after meals with warm water.',
-        clinicalNote: 'Warm water enhances herbal assimilation and protects nervous system vitality.',
-        sourceDate: record.date || 'Nov 13, 2026',
-      });
-      instructions.push({
-        doctor: record.doctorName || 'Dr. Sudarshan Bhat',
-        topic: 'Neargon LG Afternoon Dosing',
-        instruction: 'Take 1 tablet of Neargon LG once daily in the afternoon (01:30 PM) after lunch with water.',
-        clinicalNote: 'Supports cervical spine stability and neuropathic pain modulation.',
-        sourceDate: record.date || 'Nov 13, 2026',
-      });
-      instructions.push({
-        doctor: record.doctorName || 'Dr. Sudarshan Bhat',
-        topic: 'Mahanarayan Oil External Application',
-        instruction: 'Apply Mahanarayan Oil gently over the affected neck, back, or stiff joints with light circular strokes. Do not ingest.',
-        clinicalNote: 'Alleviates neuro-muscular stiffness and restores joint ease.',
-        sourceDate: record.date || 'Nov 13, 2026',
-      });
+    // Medication-level timing instructions from OCR
+    const medicines = Array.isArray(rx.medicines) ? rx.medicines : [];
+    for (const m of medicines) {
+      if (!m?.name) continue;
+      if (m.timing_instructions) {
+        instructions.push({
+          doctor,
+          topic: `${m.name} — Timing`,
+          instruction: m.timing_instructions,
+          clinicalNote: '',
+          sourceDate,
+        });
+      }
     }
 
-    // Dr. Neelkanta / General Medicine Instructions
-    if (lowerText.includes('neelkanta') || record.category === 'General Medicine') {
-      instructions.push({
-        doctor: record.doctorName || 'Dr. Neelkanta',
-        topic: 'General Health & Hydration Routine',
-        instruction: 'Maintain balanced wholesome nutrition, drink 2.5 to 3 liters of water daily, and avoid excessive oily or heavily processed foods.',
-        clinicalNote: 'Promotes sustained metabolic balance and consistent energy levels.',
-        sourceDate: record.date || 'Nov 12, 2026',
-      });
-      instructions.push({
-        doctor: record.doctorName || 'Dr. Neelkanta',
-        topic: 'Routine Physical Activity & Vitals',
-        instruction: 'Engage in 20–30 minutes of light morning walking. Track baseline blood pressure and blood sugar periodically.',
-        clinicalNote: 'Preventive cardiovascular and metabolic maintenance.',
-        sourceDate: record.date || 'Nov 12, 2026',
-      });
-    }
-
-    // Metformin Instructions
-    if (lowerText.includes('metformin')) {
+    // General lifestyle advice from OCR
+    const advice = Array.isArray(rx.general_advice_or_lifestyle) ? rx.general_advice_or_lifestyle : [];
+    for (const a of advice) {
+      if (!a) continue;
       instructions.push({
         doctor,
-        topic: 'Metformin & Food Timing',
-        instruction: 'Take 1 tablet once daily immediately after a warm breakfast with water for 90 days (08:00 AM).',
-        clinicalNote: 'Always take with food to protect the stomach lining from cramps or nausea.',
-        sourceDate: record.date || 'Nov 10, 2026',
+        topic: 'General Advice & Lifestyle',
+        instruction: a,
+        clinicalNote: '',
+        sourceDate,
       });
     }
 
-    // Atorvastatin Instructions
-    if (lowerText.includes('atorvastatin')) {
+    // Follow-up advice from OCR
+    if (rx.follow_up_advice) {
       instructions.push({
         doctor,
-        topic: 'Atorvastatin Bedtime Dosing',
-        instruction: 'Take 1 tablet once daily at bedtime with water (10:00 PM). Avoid grapefruit.',
-        clinicalNote: 'Targets nocturnal cholesterol synthesis by the liver.',
-        sourceDate: record.date || 'Nov 10, 2026',
+        topic: 'Follow-up',
+        instruction: rx.follow_up_advice,
+        clinicalNote: '',
+        sourceDate,
       });
     }
   }
@@ -794,104 +593,44 @@ export async function get_doctor_instructions(customRecords = null) {
 
 /**
  * SQL Tool: correlate_report_with_medications()
- * Analyzes report findings (abnormal lab markers, test values) and explicitly
- * links each finding to the corresponding medication prescribed by the doctor.
+ * Links documented findings (diagnoses, lab values) from the patient's own records
+ * to the medications prescribed in those same records. No invented analysis.
  */
 export async function correlate_report_with_medications(customRecords = null) {
   const records = await get_database_records(customRecords);
   const correlations = [];
 
   for (const record of records) {
-    const text = [record.title, record.description, record.prescriptionText, record.doctorName]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
+    const rx = record.ocrData?.prescription_data || {};
+    const report = record.ocrData?.report_data || {};
+    const doctor = rx.doctor_name || record.doctorName || 'Prescribing Doctor';
 
-    // Neurology Report (Dr. Sudarshan Bhat)
-    if (text.includes('sudarshan') || text.includes('neuro') || text.includes('neargon') || text.includes('neuron')) {
-      correlations.push({
-        testName: 'Neurological Evaluation & Nerve Support',
-        reportValue: 'Prescription of Neurology (Nov 13, 2026)',
-        normalReference: 'Normal Nerve Conduction & Neuromuscular Tone',
-        reportAnalysis:
-          'Evaluated by Dr. Sudarshan Bhat for cervical spine and peripheral nerve discomfort, with localized muscular stiffness and fatigue.',
-        targetMedication: 'Neargon LG (0-1-0), Neuron (1-0-1), Neo (1-0-1), Mahanarayan Oil',
-        doctor: record.doctorName || 'Dr. Sudarshan Bhat',
-        schedule:
-          'Morning: Neuron (1 tab) + Neo (1 tab) after breakfast | Midday: Neargon LG (1 tab) after lunch | Night: Neuron (1 tab) + Neo (1 tab) after dinner.',
-        whyPrescribed:
-          'Neuron and Neo nourish nerve sheaths and boost cellular vitality; Neargon LG targets localized cervical pain; Mahanarayan oil eases muscular stiffness.',
-        howToTakeTip:
-          'Always take oral tablets with warm water after meals. Apply the oil gently externally without aggressive rubbing.',
-      });
-    }
+    const findings = [
+      ...(Array.isArray(rx.diagnosis_or_symptoms) ? rx.diagnosis_or_symptoms : []),
+      ...(Array.isArray(report.measurements)
+        ? report.measurements.map((t) =>
+            t?.parameter ? `${t.parameter}${t.value ? `: ${t.value}${t.unit ? ` ${t.unit}` : ''}` : ''}` : null
+          )
+        : []),
+    ].filter(Boolean);
 
-    // General Medicine (Dr. Neelkanta)
-    if (text.includes('neelkanta') || text.includes('general medicine') || text.includes('general medication')) {
-      correlations.push({
-        testName: 'General Health & Metabolic Management',
-        reportValue: 'General Medications (Nov 12, 2026)',
-        normalReference: 'Optimal Baseline Health & Vitals',
-        reportAnalysis:
-          'Consultation under Dr. Neelkanta focusing on general wellness, routine metabolic regulation, and physical maintenance.',
-        targetMedication: 'General Maintenance Regimen & Hydration Protocol',
-        doctor: record.doctorName || 'Dr. Neelkanta',
-        schedule: 'Daily morning and evening routine with meals.',
-        whyPrescribed:
-          'Prescribed for overall physiological vitality, balanced nutrition, and preventive wellness.',
-        howToTakeTip:
-          'Drink plenty of warm water throughout the day and maintain regular, unhurried meal times.',
-      });
-    }
+    const medicines = (Array.isArray(rx.medicines) ? rx.medicines : [])
+      .filter((m) => m?.name)
+      .map((m) => `${m.name}${m.strength ? ` ${m.strength}` : ''} (${m.frequency || 'as prescribed'})`);
 
-    // Glucose / Pathology if present
-    if (text.includes('glucose') || text.includes('sugar') || text.includes('metformin')) {
-      correlations.push({
-        testName: 'Fasting Blood Glucose',
-        reportValue: '108 mg/dL',
-        normalReference: '70 – 99 mg/dL',
-        reportAnalysis:
-          'Mildly elevated fasting sugar (Impaired fasting glucose). Your liver is releasing excess glucose into your blood in the morning.',
-        targetMedication: 'Metformin 500mg',
-        doctor: record.doctorName || 'Attending Physician',
-        schedule: 'Take 1 tablet once daily at 08:00 AM right after warm breakfast with water.',
-        whyPrescribed:
-          'Directly reduces liver glucose release and improves insulin sensitivity.',
-        howToTakeTip: 'Always eat breakfast first before taking this pill.',
-      });
-    }
+    if (findings.length === 0 && medicines.length === 0) continue;
 
-    // Lipids if present
-    if (text.includes('lipid') || text.includes('cholesterol') || text.includes('atorvastatin')) {
-      correlations.push({
-        testName: 'LDL "Bad" Cholesterol',
-        reportValue: 'LDL: 132 mg/dL',
-        normalReference: 'LDL < 100 mg/dL',
-        reportAnalysis: 'Elevated LDL cholesterol requiring lipid regulation.',
-        targetMedication: 'Atorvastatin 20mg',
-        doctor: record.doctorName || 'Attending Physician',
-        schedule: 'Take 1 tablet once daily at 10:00 PM with water.',
-        whyPrescribed: 'Blocks nocturnal cholesterol production in the liver.',
-        howToTakeTip: 'Take at bedtime with water; avoid grapefruit.',
-      });
-    }
-  }
-
-  // Fallback if no specific correlations matched
-  if (correlations.length === 0 && records.length > 0) {
-    for (const record of records) {
-      correlations.push({
-        testName: record.title || 'Clinical Upload Record',
-        reportValue: `${record.category || 'General Health'} (${record.date || record.timestamp || 'Recent'})`,
-        normalReference: 'Clinical Standard',
-        reportAnalysis: `Medical record managed by ${record.doctorName || 'Consulting Physician'}.`,
-        targetMedication: record.title || 'Prescribed Regimen',
-        doctor: record.doctorName || 'Consulting Physician',
-        schedule: 'Follow prescription instructions.',
-        whyPrescribed: 'Targeted for documented health management.',
-        howToTakeTip: 'Take as directed by doctor.',
-      });
-    }
+    correlations.push({
+      testName: findings.length > 0 ? findings.join('; ') : record.title || 'Clinical Record',
+      reportValue: rx.date_of_consultation || report.report_date || record.date || '',
+      normalReference: '',
+      reportAnalysis: record.ocrData?.summary || '',
+      targetMedication: medicines.join(', '),
+      doctor,
+      schedule: medicines.map((m) => m).join('; '),
+      whyPrescribed: '',
+      howToTakeTip: '',
+    });
   }
 
   return correlations;
@@ -949,16 +688,35 @@ I am very concerned about what you just described. Your safety is the #1 priorit
     q.includes('prescriber') ||
     q.includes('dr.') ||
     q.includes('dr ') ||
-    q.includes('who prescribed') ||
-    q.includes('sudarshan') ||
-    q.includes('neelkanta');
+    q.includes('who prescribed');
 
   if (isAskingDoctor) {
     const doctors = await get_doctor_details(allPrescriptions);
+
+    if (doctors.length === 0) {
+      return {
+        status: 'grounded',
+        urgent: false,
+        reply: `### 👨‍⚕️ No Doctor Information Found
+
+I could not find any attending doctor information in your uploaded medical records.
+
+*Note: MedBot provides information derived directly from your uploaded medical records and does not substitute for direct medical consultation.*`,
+        citedMedications: [],
+        suggestedFollowUps: [
+          'What medicines did the doctor prescribe?',
+          'What problems are documented in my reports?',
+          'What instructions did my doctor give?',
+        ],
+        engine: 'OnePatient Local Records Fallback (backend offline)',
+        toolsUsed: ['get_doctor_details'],
+      };
+    }
+
     const doctorCards = doctors
       .map((d) => {
         const recordsList = d.associatedRecords.map((r) => `* **${r.title}** (${r.category}, ${r.date})`).join('\n');
-        return `#### 👨‍⚕️ ${d.name} — *${d.specialty}*\n* **Clinic / Facility:** ${d.clinic}\n* **Credentials:** ${d.credentials}\n* **Clinical Focus:** ${d.focus}\n* **Uploaded Report:**\n${recordsList}`;
+        return `#### 👨‍⚕️ ${d.name} — *${d.specialty}*\n* **Clinic / Facility:** ${d.clinic}\n* **Credentials:** ${d.credentials}\n* **Uploaded Report:**\n${recordsList}`;
       })
       .join('\n\n---\n\n');
 
@@ -971,14 +729,14 @@ I analyzed your medical records and identified your attending physicians:
 
 ${doctorCards}
 
-Would you like me to explain the medicines or instructions prescribed by either doctor?`,
+*Note: MedBot provides information derived directly from your uploaded medical records and does not substitute for direct medical consultation.*`,
       citedMedications: meds.map((m) => m.name),
       suggestedFollowUps: [
         'What problems are documented in my reports?',
-        'Explain my report and prescribed medicines',
+        'What medicines did the doctor prescribe?',
         'When should I take my medicines?',
       ],
-      engine: 'Qwen 2.5 7B AI Agent • SQL Doctor Verification',
+      engine: 'OnePatient Local Records Fallback (backend offline)',
       toolsUsed: ['get_doctor_details', 'get_medications'],
     };
   }
@@ -995,10 +753,30 @@ Would you like me to explain the medicines or instructions prescribed by either 
     q.includes('what is wrong');
 
   if (isAskingProblem) {
+    if (conditions.length === 0) {
+      return {
+        status: 'grounded',
+        urgent: false,
+        reply: `### 📋 No Documented Problems Found
+
+I could not find any documented diagnoses, symptoms, or clinical findings in your uploaded medical records.
+
+*Note: MedBot provides information derived directly from your uploaded medical records and does not substitute for direct medical consultation.*`,
+        citedMedications: [],
+        suggestedFollowUps: [
+          'Who is my doctor?',
+          'What medicines did the doctor prescribe?',
+          'What instructions did my doctor give?',
+        ],
+        engine: 'OnePatient Local Records Fallback (backend offline)',
+        toolsUsed: ['get_conditions'],
+      };
+    }
+
     const conditionCards = conditions
       .map(
         (c) =>
-          `#### 🩺 ${c.condition}\n* **Status:** ${c.status}\n* **Attending Doctor:** **${c.diagnosedOrMonitoredBy}** (${c.category})\n* **Clinical Assessment & Therapy:** ${c.notes}`
+          `#### 🩺 ${c.condition}\n* **Status:** ${c.status}\n* **Attending Doctor:** **${c.diagnosedOrMonitoredBy || 'Not recorded'}** (${c.category})\n* **Notes:** ${c.notes || 'See source document.'}`
       )
       .join('\n\n---\n\n');
 
@@ -1011,14 +789,14 @@ According to your medical records:
 
 ${conditionCards}
 
-Both conditions are being actively addressed by your doctors with your daily medication and wellness routine. Would you like me to explain how your medications treat these conditions?`,
+*Note: MedBot provides information derived directly from your uploaded medical records and does not substitute for direct medical consultation.*`,
       citedMedications: meds.map((m) => m.name),
       suggestedFollowUps: [
         'Who is my doctor?',
-        'Explain my report and prescribed medicines',
-        'When should I take Neargon LG and Neuron?',
+        'What medicines did the doctor prescribe?',
+        'What instructions did my doctor give?',
       ],
-      engine: 'Qwen 2.5 7B AI Agent • SQL Problem & Condition Analysis',
+      engine: 'OnePatient Local Records Fallback (backend offline)',
       toolsUsed: ['get_conditions', 'get_medications'],
     };
   }
@@ -1048,10 +826,30 @@ Both conditions are being actively addressed by your doctors with your daily med
     q.includes('base');
 
   if (isAskingReportOrWhyMed) {
+    if (reportCorrelations.length === 0) {
+      return {
+        status: 'grounded',
+        urgent: false,
+        reply: `### 📊 No Report Data Found
+
+I could not find any report findings or prescribed medications in your uploaded medical records to analyze.
+
+*Note: MedBot provides information derived directly from your uploaded medical records and does not substitute for direct medical consultation.*`,
+        citedMedications: [],
+        suggestedFollowUps: [
+          'Who is my doctor?',
+          'What problems are documented in my report?',
+          'What instructions did my doctor give?',
+        ],
+        engine: 'OnePatient Local Records Fallback (backend offline)',
+        toolsUsed: ['correlate_report_with_medications', 'get_medications'],
+      };
+    }
+
     const correlationCards = reportCorrelations
       .map(
         (c) =>
-          `#### 🩺 ${c.testName}: **${c.reportValue}**\n* **What Your Report Shows:** ${c.reportAnalysis}\n* **Medication Prescribed:** **${c.targetMedication}** (${c.doctor})\n* **Why for This Finding:** ${c.whyPrescribed}\n* **How to Take:** ${c.schedule} ${c.howToTakeTip}`
+          `#### 🩺 ${c.testName}${c.reportValue ? `: **${c.reportValue}**` : ''}\n${c.reportAnalysis ? `* **What Your Record Shows:** ${c.reportAnalysis}\n` : ''}* **Medication Prescribed:** **${c.targetMedication || 'Not recorded'}** (${c.doctor})${c.schedule ? `\n* **How to Take:** ${c.schedule}` : ''}`
       )
       .join('\n\n---\n\n');
 
@@ -1063,26 +861,18 @@ Both conditions are being actively addressed by your doctors with your daily med
       urgent: false,
       reply: `### 📊 Report Analysis & Your Prescribed Medications
 
-I analyzed your uploaded medical reports ${introDoctors} and connected each finding directly to your prescribed treatments:
+I analyzed your uploaded medical records ${introDoctors} and connected each documented finding to the prescribed treatments:
 
 ${correlationCards}
 
----
-
-#### 💡 Your Daily Schedule at a Glance:
-* 🌅 **08:30 AM (Morning after breakfast):** Take **Neuron (1 tab)** + **Neo (1 tab)** with warm water.
-* ☀️ **01:30 PM (Midday after lunch):** Take **Neargon LG (1 tab)** with water.
-* 🌙 **09:30 PM (Night after dinner):** Take **Neuron (1 tab)** + **Neo (1 tab)** with warm water.
-* 💆 **As Needed:** Apply **Mahanarayan Oil** externally for stiffness.
-
-Does this breakdown make it easy to understand why each medication was prescribed? Let me know if you have any questions!`,
+*Note: MedBot provides information derived directly from your uploaded medical records and does not substitute for direct medical consultation.*`,
       citedMedications: meds.map((m) => m.name),
       suggestedFollowUps: [
         'Who is my doctor?',
         'What problems are documented in my reports?',
         'What instructions did my doctor give?',
       ],
-      engine: 'Qwen 2.5 7B AI Agent • SQL Report-to-Medication Analysis',
+      engine: 'OnePatient Local Records Fallback (backend offline)',
       toolsUsed: ['correlate_report_with_medications', 'get_medications', 'get_doctor_instructions'],
     };
   }
@@ -1092,47 +882,66 @@ Does this breakdown make it easy to understand why each medication was prescribe
     return {
       status: 'grounded',
       urgent: false,
-      reply: `### 🛡️ Allergy Status from Your Database Records:
+      reply: `### 🛡️ Allergy Status from Your Records:
 
 * **Documented Status:** **${allergies.summary}**
 * **Clinician Verification:** ${allergies.notes}
-* **Safe Practice:** Both of your currently prescribed medications (**Metformin 500mg** and **Atorvastatin 20mg**) have no documented contraindications or allergy warnings in your profile.
 
-If you have ever had a reaction to any antibiotic, food, or painkiller that isn't listed, be sure to mention it to **Dr. Rajiv Mehta** at your next visit!`,
-      citedMedications: ['Metformin', 'Atorvastatin'],
+If you have ever had a reaction to any antibiotic, food, or painkiller that isn't listed in your records, be sure to mention it to your doctor at your next visit.`,
+      citedMedications: meds.map((m) => m.name),
       suggestedFollowUps: [
-        'What are the side effects of Metformin?',
-        'What are the side effects of Atorvastatin?',
+        'What medicines did the doctor prescribe?',
+        'What instructions did my doctor give?',
         'Summarize my prescription schedule',
       ],
-      engine: 'Qwen 2.5 7B AI Agent • SQL Database Verified',
+      engine: 'OnePatient Local Records Fallback (backend offline)',
       toolsUsed: ['get_allergies', 'get_medications'],
     };
   }
 
   // 4. CONDITIONS / DIAGNOSIS QUERY
   if (q.includes('condition') || q.includes('disease') || q.includes('diagnos') || q.includes('problem list') || q.includes('illness')) {
+    if (conditions.length === 0) {
+      return {
+        status: 'grounded',
+        urgent: false,
+        reply: `### 📋 No Diagnosed Conditions Found
+
+I could not find any diagnosed conditions or problem list entries in your uploaded medical records.
+
+*Note: MedBot provides information derived directly from your uploaded medical records and does not substitute for direct medical consultation.*`,
+        citedMedications: [],
+        suggestedFollowUps: [
+          'What medicines did the doctor prescribe?',
+          'Who is my doctor?',
+          'What instructions did my doctor give?',
+        ],
+        engine: 'OnePatient Local Records Fallback (backend offline)',
+        toolsUsed: ['get_conditions', 'get_medications'],
+      };
+    }
+
     const conditionLines = conditions
-      .map((c) => `• **${c.condition}** — *${c.status}* (Diagnosed/Monitored by ${c.diagnosingDoctor || c.diagnosedOrMonitoredBy})`)
+      .map((c) => `• **${c.condition}** — *${c.status}*${c.diagnosedOrMonitoredBy ? ` (Documented by ${c.diagnosedOrMonitoredBy})` : ''}`)
       .join('\n');
 
     return {
       status: 'grounded',
       urgent: false,
-      reply: `### 📋 Diagnosed Conditions from Your Database Records:
+      reply: `### 📋 Documented Conditions from Your Records:
 
 According to your medical records:
 
 ${conditionLines}
 
-Both conditions are actively being treated with your daily prescription regimen. Would you like me to explain how your medications protect against long-term complications?`,
-      citedMedications: ['Metformin', 'Atorvastatin'],
+*Note: MedBot provides information derived directly from your uploaded medical records and does not substitute for direct medical consultation.*`,
+      citedMedications: meds.map((m) => m.name),
       suggestedFollowUps: [
-        'Explain my daily medication schedule',
-        'What were my latest cholesterol numbers?',
-        'What food rules did my doctor give?',
+        'What medicines did the doctor prescribe?',
+        'What instructions did my doctor give?',
+        'Who is my doctor?',
       ],
-      engine: 'Qwen 2.5 7B AI Agent • SQL Database Verified',
+      engine: 'OnePatient Local Records Fallback (backend offline)',
       toolsUsed: ['get_conditions', 'get_medications'],
     };
   }
@@ -1160,9 +969,9 @@ Both conditions are actively being treated with your daily prescription regimen.
       urgent: false,
       reply: `### 📝 Doctor Instructions & Clinical Advice from Your Records:
 
-Here is the exact clinical guidance documented in your uploaded records (**${doctorNames}**):
+Here is the clinical guidance documented in your uploaded records (**${doctorNames}**):
 
-${instructionLines || '• Take all prescribed medicines according to the schedule specified on your consultation sheet.'}
+${instructionLines || 'I could not find any specific instructions or advice documented in your uploaded records. Please follow the directions written on your prescription document.'}
 
 * **General Rule:** Always follow the exact dosage and review dates specified on your prescription.`,
       citedMedications: meds.map((m) => m.name),
@@ -1171,7 +980,7 @@ ${instructionLines || '• Take all prescribed medicines according to the schedu
         'When should I take my medications?',
         'What should I do if I miss a dose?',
       ],
-      engine: 'OnePatient Verified Records Engine',
+      engine: 'OnePatient Local Records Fallback (backend offline)',
       toolsUsed: ['get_doctor_instructions', 'get_medications'],
     };
   }
@@ -1193,7 +1002,7 @@ ${instructionLines || '• Take all prescribed medicines according to the schedu
     const medLines = meds
       .map(
         (m) =>
-          `• **${m.name} ${m.dosage}:** ${m.frequency || 'As directed'} (${m.timeScheduled || 'Standard timing'})\n  - **Target:** ${m.indication || 'Prescribed therapy'}\n  - **Duration:** ${m.duration || 'Follow consultation'}\n  - **Prescribed by:** ${m.prescriber || 'Consulting Doctor'}`
+          `• **${m.name}${m.dosage ? ` ${m.dosage}` : ''}:** ${m.frequency || 'As directed'}${m.timeScheduled ? ` (${m.timeScheduled})` : ''}${m.indication ? `\n  - **For:** ${m.indication}` : ''}${m.duration ? `\n  - **Duration:** ${m.duration}` : ''}${m.prescriber ? `\n  - **Prescribed by:** ${m.prescriber}` : ''}`
       )
       .join('\n\n');
 
@@ -1202,9 +1011,9 @@ ${instructionLines || '• Take all prescribed medicines according to the schedu
       urgent: false,
       reply: `### 💊 Your Prescribed Medications Linked to Your Records:
 
-Here is your verified medication list extracted directly from your uploaded consultations:
+Here is your medication list extracted directly from your uploaded consultations:
 
-${medLines || 'No active prescribed medications found in your uploaded records.'}
+${medLines || 'No prescribed medications were found in your uploaded records.'}
 
 *Always consult your physician before altering any prescribed dosage.*`,
       citedMedications: meds.map((m) => m.name),
@@ -1213,136 +1022,140 @@ ${medLines || 'No active prescribed medications found in your uploaded records.'
         'When should I take my medications?',
         'What should I do if I miss a dose?',
       ],
-      engine: 'OnePatient Verified Records Engine',
+      engine: 'OnePatient Local Records Fallback (backend offline)',
       toolsUsed: ['get_medications', 'correlate_report_with_medications'],
     };
   }
 
   // 7. MISSED DOSE PROTOCOL
   if (q.includes('miss') || q.includes('forgot') || q.includes('skip') || q.includes('late')) {
+    const medNames = meds.map((m) => m.name).filter(Boolean);
+    const medList = medNames.length > 0 ? medNames.join(', ') : 'your prescribed medicines';
+
     return {
       status: 'grounded',
       urgent: false,
       reply: `### 😊 Don't worry! Forgetting a pill happens to everyone.
 
-Here is the exact rule for your medications from the database:
+Here is the general rule for ${medList}:
 
-* **If it's only been a few hours:** Go ahead and take it (with food for Metformin).
+* **If it's only been a few hours:** Go ahead and take it (follow any food instructions on your prescription).
 * **If it's close to your next scheduled dose:** Skip the forgotten pill and continue on your normal schedule.
 * **The golden rule:** **Never take two pills at once.** Double-dosing doesn't help and just causes side effects.
 
-Just get back on track with your next scheduled pill — you're doing great!`,
-      citedMedications: ['Metformin', 'Atorvastatin'],
+For medicine-specific advice, confirm with the doctor who prescribed them.`,
+      citedMedications: medNames,
       suggestedFollowUps: [
-        'How should I take Metformin 500mg?',
-        'Why take Atorvastatin at bedtime?',
-        'What are the common side effects?',
+        'What medicines did the doctor prescribe?',
+        'When should I take my medications?',
+        'What instructions did my doctor give?',
       ],
-      engine: 'Qwen 2.5 7B AI Agent • SQL Database Verified',
+      engine: 'OnePatient Local Records Fallback (backend offline)',
       toolsUsed: ['get_medications', 'get_doctor_instructions'],
     };
   }
 
   // 8. SIDE EFFECTS INQUIRY
   if (q.includes('side effect') || q.includes('stomach') || q.includes('muscle') || q.includes('ache') || q.includes('cramp')) {
+    const medNames = meds.map((m) => m.name).filter(Boolean);
+    const medList = medNames.length > 0 ? medNames.join(', ') : 'your prescribed medicines';
+
     return {
       status: 'grounded',
       urgent: false,
-      reply: `### 🛡️ Side Effects Guide for Your Prescribed Medicines:
+      reply: `### 🛡️ Side Effects for ${medList}:
 
-* **Metformin 500mg:** Mild nausea, cramps, or a loose stomach can happen in the first 1–2 weeks. **Taking it midway through or right after breakfast** fixes this for almost everyone!
-* **Atorvastatin 20mg:** Usually very well tolerated. If you ever feel **unusual, persistent muscle soreness or weakness** that won't go away, call **Dr. Rajiv Mehta**.
+Your uploaded medical records do not document side-effect information. Side effects vary by medicine and by person, so please check the information leaflet that came with your medicine, or ask the prescribing doctor or your pharmacist about what to expect and what warning signs to watch for.
 
-How has your stomach been feeling since you started?`,
-      citedMedications: ['Metformin', 'Atorvastatin'],
+Seek medical attention right away if you experience severe symptoms such as difficulty breathing, swelling of the face or throat, or severe persistent pain.`,
+      citedMedications: medNames,
       suggestedFollowUps: [
-        'What should I eat with Metformin?',
-        'Why take Atorvastatin at bedtime?',
-        'What were my latest lab results?',
+        'What medicines did the doctor prescribe?',
+        'What instructions did my doctor give?',
+        'Who is my doctor?',
       ],
-      engine: 'Qwen 2.5 7B AI Agent • SQL Database Verified',
+      engine: 'OnePatient Local Records Fallback (backend offline)',
       toolsUsed: ['get_medications', 'get_doctor_instructions'],
     };
   }
 
-  // 9. GENERAL SEARCH OR OPEN-ENDED QUERY
+  // 9. GENERAL / OFF-TOPIC / UNMATCHED QUERY
+  // Never invent medications or findings here. The backend RAG service is the source of truth;
+  // this fallback only reflects what the local record search actually found.
   const searchSummary = searchHits.length > 0
-    ? `I searched your database and found matching records from **${searchHits.map((s) => s.doctor || s.title).join(', ')}**.`
-    : `I reviewed your database records from **Dr. Rajiv Mehta** and **Dr. Sarah Jenkins**.`;
+    ? `I searched your records and found these matching entries:\n\n${searchHits
+        .map((s) => `* **${s.title || 'Medical Record'}**${s.doctor ? ` — ${s.doctor}` : ''}${s.date ? ` (${s.date})` : ''}`)
+        .join('\n')}`
+    : `I could not find anything related to that in your uploaded medical records.\n\nMedBot only answers questions grounded in your actual uploaded documents and prescriptions. Try asking about your diagnosed problems, doctor findings, prescribed medicines, or doctor instructions.`;
 
   return {
     status: 'grounded',
     urgent: false,
-    reply: `### 😊 Here is what your medical records say:
+    reply: `### 😊 ${searchHits.length > 0 ? 'Here is what your medical records say:' : 'No matching information in your records'}
 
 ${searchSummary}
 
-* **Report Finding 1 (Glucose 108 mg/dL):** Prescribed **Metformin 500mg** (take after breakfast).
-* **Report Finding 2 (LDL 132 mg/dL):** Prescribed **Atorvastatin 20mg** (take at bedtime).
-* **Allergies:** No Known Drug Allergies (NKDA) documented.
-
-Feel free to ask me to analyze any specific report or explain why a medicine was prescribed!`,
-    citedMedications: ['Metformin', 'Atorvastatin'],
+*Note: MedBot provides information derived directly from your uploaded medical records and does not substitute for direct medical consultation.*`,
+    citedMedications: [],
     suggestedFollowUps: [
-      'Explain my report and medicines',
-      'What were my latest lab results?',
-      'What are all my medications and stop dates?',
+      'What medicines did the doctor prescribe?',
+      'What problems are documented in my report?',
+      'What instructions did my doctor give?',
     ],
-    engine: 'Qwen 2.5 7B AI Agent • SQL Database Verified',
-    toolsUsed: ['search_records', 'correlate_report_with_medications', 'get_medications'],
+    engine: 'OnePatient Local Records Fallback (backend offline)',
+    toolsUsed: ['search_records', 'get_medications', 'get_conditions'],
   };
 }
 
 export function analyzePrescriptionLocally(prescription) {
-  const prescriber = prescription?.doctorName || 'Dr. Rajiv Mehta';
-  const medications = [
-    {
-      id: 'med-1',
-      name: 'Metformin',
-      dosage: '500mg',
-      frequency: 'Once daily after breakfast',
-      timesOfDay: ['08:00'],
-      foodInstruction: 'After warm breakfast with water',
-      duration: '90 days',
-      clarityStatus: 'clear',
-    },
-    {
-      id: 'med-2',
-      name: 'Atorvastatin',
-      dosage: '20mg',
-      frequency: 'Once daily at bedtime',
-      timesOfDay: ['22:00'],
-      foodInstruction: 'With water at bedtime',
-      duration: '30 days',
-      clarityStatus: 'clear',
-    },
-  ];
+  // Derive medication list strictly from the prescription's own OCR data.
+  // No hardcoded example medicines: an empty prescription yields an empty analysis.
+  const prescriber = prescription?.doctorName || 'Prescribing Doctor';
+  const ocrMeds =
+    prescription?.ocrData?.prescription_data?.medicines ||
+    prescription?.ocrData?.structuredMedications ||
+    [];
+
+  const medications = (Array.isArray(ocrMeds) ? ocrMeds : [])
+    .filter((m) => m && m.name)
+    .map((m, idx) => ({
+      id: `med-${idx + 1}`,
+      name: m.name,
+      dosage: m.strength || m.dosage || '',
+      frequency: m.frequency || 'As prescribed',
+      timesOfDay: [],
+      foodInstruction: m.timing_instructions || m.timing || m.foodInstruction || '',
+      duration: m.duration || '',
+      clarityStatus: m.is_uncertain ? 'uncertain' : 'clear',
+    }));
+
+  // Build suggested reminders only from medications that actually specify a schedule.
+  const suggestedReminders = medications
+    .filter((m) => m.dosage)
+    .map((m, idx) => ({
+      id: `sug-${idx + 1}`,
+      medName: m.name,
+      dosage: m.dosage,
+      time24: '08:00',
+      timeLabel: '08:00 AM',
+      instruction: m.frequency ? `Take as prescribed: ${m.frequency}` : 'Take as prescribed',
+    }));
+
+  const medSummary =
+    medications.length > 0
+      ? `${medications.length} medication${medications.length === 1 ? '' : 's'} extracted from prescription: ${medications
+          .map((m) => `${m.name}${m.dosage ? ` ${m.dosage}` : ''}`)
+          .join(', ')}.`
+      : 'No medications could be extracted from this prescription.';
 
   return {
-    engine: 'Qwen 2.5 7B AI Engine • SQL Database Grounded',
+    engine: 'OnePatient Prescription OCR Analysis',
     analyzedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     prescriber,
-    summary: `2 medications prescribed: Metformin 500mg (morning) and Atorvastatin 20mg (bedtime).`,
+    summary: medSummary,
     medications,
-    ambiguities: [],
-    suggestedReminders: [
-      {
-        id: 'sug-1',
-        medName: 'Metformin',
-        dosage: '500mg',
-        time24: '08:00',
-        timeLabel: '08:00 AM',
-        instruction: 'Take 1 tablet after warm breakfast',
-      },
-      {
-        id: 'sug-2',
-        medName: 'Atorvastatin',
-        dosage: '20mg',
-        time24: '22:00',
-        timeLabel: '10:00 PM',
-        instruction: 'Take 1 tablet at bedtime with water',
-      },
-    ],
+    ambiguities: medications.filter((m) => m.clarityStatus === 'uncertain').map((m) => m.name),
+    suggestedReminders,
   };
 }
 
@@ -1430,7 +1243,7 @@ export async function askMedBotAgent({
       allPrescriptions[0]?.patientId ||
       'NNM24cc059';
 
-    const ragRes = await fetch('http://127.0.0.1:8000/api/medbot/chat', {
+    const ragRes = await fetch(`${API_BASE_URL}/api/medbot/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1501,14 +1314,14 @@ ${JSON.stringify(labs, null, 2)}
 ${JSON.stringify(instructions, null, 2)}
 `;
 
-    const systemPrompt = `You are "MedBot", a caring clinical AI assistant powered by ${model} for the OnePatient platform.
-PRIMARY INSTRUCTION:
-First, analyze the user's report findings, explain what they mean in plain simple terms, and then give the exact medication prescribed on that basis so it is very easy for the user to understand.
-Connect each abnormal report finding directly to the medication prescribed to treat it:
-- Fasting Glucose (108 mg/dL) -> Metformin 500mg (Take after breakfast to lower blood sugar).
-- LDL / Total Cholesterol (132 / 210 mg/dL) -> Atorvastatin 20mg (Take at bedtime to block cholesterol synthesis).
-- Speak warmly, kindly, and naturally, like a compassionate clinical doctor or pharmacist chatting with a friend.
-- Keep answers summarized, clear, and easy to read.
+    const systemPrompt = `You are "MedBot", a caring clinical AI assistant for the OnePatient platform, powered by ${model}.
+
+STRICT GROUNDING RULES:
+1. Answer ONLY using the verified patient data provided below. NEVER invent or assume medications, diagnoses, lab values, doctors, or instructions that are not present in that data.
+2. If the asked condition, symptom, or test is NOT mentioned in the data, clearly state that the uploaded records show no indication or testing for it. Do NOT list medications in that case.
+3. If the question is unrelated to the patient's medical records, politely state that you only answer questions about their verified medical records.
+4. When the user asks about medications, reports, or findings, use only what appears in the context below.
+5. Speak warmly, kindly, and naturally, like a compassionate clinical doctor or pharmacist chatting with a friend. Keep answers summarized, clear, and easy to read.
 
 ${databaseContext}`;
 
@@ -1535,10 +1348,10 @@ ${databaseContext}`;
           status: 'grounded',
           urgent: false,
           reply: rawResponse.trim(),
-          citedMedications: extractCitedMeds(rawResponse),
+          citedMedications: extractCitedMeds(rawResponse, meds),
           suggestedFollowUps: [
-            'Can I drink coffee with Metformin?',
-            'Why take Atorvastatin at bedtime?',
+            'What medicines did the doctor prescribe?',
+            'What problems are documented in my report?',
             'What should I do if I miss a dose?',
           ],
           engine: `${model} • Report Analysis & Medication Matching`,
@@ -1561,13 +1374,14 @@ ${databaseContext}`;
   });
 }
 
-function extractCitedMeds(text) {
+function extractCitedMeds(text, patientMeds = []) {
+  // Cite only medications actually present in the patient's own records
   const meds = [];
-  const lower = text.toLowerCase();
-  const known = ['Metformin', 'Atorvastatin', 'Amlodipine', 'Lisinopril', 'Omeprazole', 'Paracetamol', 'Ibuprofen', 'Insulin'];
-  for (const m of known) {
-    if (lower.includes(m.toLowerCase()) && !meds.includes(m)) {
-      meds.push(m);
+  const lower = (text || '').toLowerCase();
+  for (const m of patientMeds) {
+    const name = m?.name;
+    if (name && lower.includes(name.toLowerCase()) && !meds.includes(name)) {
+      meds.push(name);
     }
   }
   return meds;
