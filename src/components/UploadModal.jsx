@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
@@ -29,31 +29,100 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
     return today.toISOString().split('T')[0];
   });
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [isDragging, setIsDragging] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [error, setError] = useState('');
 
+  const fileInputRef = useRef(null);
+
+  // Prevent browser from navigating away if a file is dropped outside the drop zone
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const preventDefaultDragDrop = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    window.addEventListener('dragover', preventDefaultDragDrop);
+    window.addEventListener('drop', preventDefaultDragDrop);
+
+    return () => {
+      window.removeEventListener('dragover', preventDefaultDragDrop);
+      window.removeEventListener('drop', preventDefaultDragDrop);
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
+  const addFiles = (files) => {
+    if (!files || files.length === 0) return;
+    setSelectedFiles((prev) => [...prev, ...files]);
+    setError('');
+
+    // If title is empty, prefill a clean readable title from the first file name
+    setTitle((prevTitle) => {
+      if (prevTitle && prevTitle.trim()) return prevTitle;
+      const firstName = files[0]?.name || '';
+      if (!firstName) return prevTitle;
+      return firstName
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[-_]/g, ' ')
+        .trim();
+    });
+
+    // Read plain text prescription files so Ask MedBot can analyze them automatically
+    files.forEach((file) => {
+      if (file.type?.startsWith('text/') || /\.(txt|md|csv)$/i.test(file.name)) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const txt = String(reader.result || '').trim();
+          if (txt) {
+            setPrescriptionText((prev) => (prev ? `${prev}\n${txt}` : txt));
+          }
+        };
+        reader.readAsText(file);
+      }
+    });
+  };
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
-    if (files.length > 0) {
-      setSelectedFiles((prev) => [...prev, ...files]);
-      setError('');
+    addFiles(files);
+    // Reset input so selecting the same file again triggers onChange
+    if (e.target) {
+      e.target.value = '';
+    }
+  };
 
-      // Read plain text prescription files so Ask MedBot can analyze them automatically
-      files.forEach((file) => {
-        if (file.type.startsWith('text/') || /\.(txt|md|csv)$/i.test(file.name)) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const txt = String(reader.result || '').trim();
-            if (txt) {
-              setPrescriptionText((prev) => (prev ? `${prev}\n${txt}` : txt));
-            }
-          };
-          reader.readAsText(file);
-        }
-      });
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const droppedFiles = Array.from(e.dataTransfer?.files || []);
+    if (droppedFiles.length > 0) {
+      addFiles(droppedFiles);
     }
   };
 
@@ -180,7 +249,11 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+    <div
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      onDrop={handleDrop}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn"
+    >
       <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 max-h-[92vh] flex flex-col">
         
         {/* Header */}
@@ -308,24 +381,40 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
               Browse / Upload Files <span className="text-red-500">*</span>
             </label>
-            <label className="flex flex-col items-center justify-center border-2 border-dashed border-teal-300 hover:border-teal-500 bg-teal-50/40 hover:bg-teal-50/70 rounded-2xl p-5 cursor-pointer transition-colors group">
+            <div
+              onDragEnter={handleDragEnter}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-6 cursor-pointer transition-all select-none group ${
+                isDragging
+                  ? 'border-teal-500 bg-teal-100/90 scale-[1.01] ring-4 ring-teal-400/30'
+                  : 'border-teal-300 hover:border-teal-500 bg-teal-50/40 hover:bg-teal-50/70'
+              }`}
+            >
               <input
+                ref={fileInputRef}
                 type="file"
                 multiple
                 accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.txt,.md"
                 onChange={handleFileChange}
                 className="hidden"
               />
-              <div className="w-12 h-12 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
-                <Icon name="cloud_upload" className="text-2xl" />
+              <div
+                className={`w-12 h-12 rounded-full flex items-center justify-center mb-2 transition-transform group-hover:scale-105 ${
+                  isDragging ? 'bg-teal-600 text-white scale-110' : 'bg-teal-100 text-teal-800'
+                }`}
+              >
+                <Icon name={isDragging ? 'download' : 'cloud_upload'} className="text-2xl" />
               </div>
               <p className="text-xs font-bold text-slate-800">
-                Click to browse or drag files here
+                {isDragging ? 'Drop your files here to attach' : 'Click to browse or drag files here'}
               </p>
               <p className="text-[11px] text-slate-500 mt-0.5">
                 PDF, JPG, PNG or DOCX (Max 25MB each)
               </p>
-            </label>
+            </div>
 
             {/* Selected files preview */}
             {selectedFiles.length > 0 && (
