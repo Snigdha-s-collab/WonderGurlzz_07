@@ -164,7 +164,11 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
       const processedFiles = await Promise.all(
         selectedFiles.map(async (f) => {
           let dataUrl = '';
-          if (f.type?.startsWith('image/') || f.name?.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
+          if (
+            f.type?.startsWith('image/') ||
+            f.type?.includes('pdf') ||
+            f.name?.match(/\.(jpg|jpeg|png|webp|gif|pdf)$/i)
+          ) {
             dataUrl = await readFileAsDataUrl(f);
           }
 
@@ -193,25 +197,6 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
 
       const targetGroupId = isShared ? (selectedGroupId || (sharingGroups[0]?.id || null)) : null;
 
-    Promise.all(
-      selectedFiles.map(async (f) => {
-        let dataUrl = '';
-        if (
-          f.type?.startsWith('image/') ||
-          f.type?.includes('pdf') ||
-          f.name?.match(/\.(jpg|jpeg|png|webp|gif|pdf)$/i)
-        ) {
-          dataUrl = await readFileAsDataUrl(f);
-        }
-        return {
-          name: f.name,
-          size: (f.size / 1024).toFixed(1) + ' KB',
-          type: f.type || 'Document',
-          dataUrl: dataUrl,
-          url: dataUrl,
-        };
-      })
-    ).then((processedFiles) => {
       // Resolve the real name entered during sign up
       let uploaderName = currentUser?.name;
       try {
@@ -229,9 +214,13 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
       } catch (_) {}
 
       const newRecord = {
-        id: 'upload-' + Date.now(),
+        id: newRecordId,
         patientId: currentUser?.permanentId || 'NNM24cc059',
         uploaderName: uploaderName || currentUser?.name || 'User',
+        uploadedBy: currentUser?.id || currentUser?.permanentId || 'NNM24cc059',
+        uploadedByName: uploaderName || currentUser?.name || 'User',
+        isShared: isShared,
+        groupId: targetGroupId,
         title: title.trim(),
         description: title.trim(),
         doctorName: doctorName.trim(),
@@ -262,7 +251,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
       setIsSubmitting(false);
       setStatusText('');
       setError('Error processing file. Please try again.');
-    });
+    }
   };
 
   return (
