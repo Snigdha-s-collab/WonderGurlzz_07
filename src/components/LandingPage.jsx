@@ -14,6 +14,7 @@ export default function LandingPage({
   currentUser,
   onLogout,
   onOpenUploadModal,
+  onOpenPrescriptionModal,
   notifications = [],
   reminders = [],
   onMarkTaken,
@@ -205,6 +206,7 @@ export default function LandingPage({
               {/* Button 1: Upload Prescription */}
               <button
                 type="button"
+                onClick={onOpenPrescriptionModal}
                 className="inline-flex items-center gap-2 teal-gradient-btn text-white font-bold px-5 sm:px-6 py-3.5 rounded-full text-sm shadow-pill-glow hover:scale-105 transition-transform"
               >
                 <Icon name="prescriptions" className="text-lg sm:text-xl text-white" />
@@ -214,6 +216,7 @@ export default function LandingPage({
               {/* Button 2: Upload Medical Documents */}
               <button
                 type="button"
+                onClick={onOpenUploadModal}
                 className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold px-5 sm:px-6 py-3.5 rounded-full text-sm transition-all hover:scale-105"
               >
                 <Icon name="description" className="text-lg sm:text-xl text-teal-300" />
@@ -223,6 +226,7 @@ export default function LandingPage({
               {/* Button 3: View Current Medications */}
               <button
                 type="button"
+                onClick={() => onNavigate && onNavigate('my-uploads')}
                 className="inline-flex items-center gap-2 bg-teal-950/80 hover:bg-teal-900 border border-teal-500/40 text-teal-200 font-bold px-5 sm:px-6 py-3.5 rounded-full text-sm transition-all hover:scale-105"
               >
                 <Icon name="medication" className="text-lg sm:text-xl text-teal-400" />

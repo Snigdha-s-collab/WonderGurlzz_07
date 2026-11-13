@@ -5,6 +5,7 @@ import AuditTrail from './components/AuditTrail';
 import AuthPage from './components/AuthPage';
 import MyUploads from './components/MyUploads';
 import UploadModal from './components/UploadModal';
+import PrescriptionUploadModal from './components/PrescriptionUploadModal';
 import AboutUs from './components/AboutUs';
 import AccessQRPage from './components/AccessQRPage';
 import DoctorPortalView from './components/DoctorPortalView';
@@ -137,6 +138,7 @@ export default function App() {
 
   const [page, setPage] = useState(getPageFromHash);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false);
   const [medbotUploadId, setMedbotUploadId] = useState(null);
 
   // Load user uploads and enrich with image URLs
@@ -503,6 +505,7 @@ export default function App() {
           currentUser={currentUser}
           onLogout={handleLogout}
           onOpenUploadModal={() => setIsUploadModalOpen(true)}
+          onOpenPrescriptionModal={() => setIsPrescriptionModalOpen(true)}
           notifications={notifications}
           reminders={reminders}
           onMarkTaken={handleMarkTaken}
@@ -522,6 +525,7 @@ export default function App() {
           setPage={navigateTo}
           uploads={uploads}
           onOpenUploadModal={() => setIsUploadModalOpen(true)}
+          onOpenPrescriptionModal={() => setIsPrescriptionModalOpen(true)}
           currentUser={currentUser}
           onLogout={handleLogout}
           notifications={notifications}
@@ -566,6 +570,7 @@ export default function App() {
           currentUser={currentUser}
           onLogout={handleLogout}
           onOpenUploadModal={() => setIsUploadModalOpen(true)}
+          onOpenPrescriptionModal={() => setIsPrescriptionModalOpen(true)}
         />
       )}
       {page === 'audit' && (
@@ -574,6 +579,7 @@ export default function App() {
           currentUser={currentUser}
           onLogout={handleLogout}
           onOpenUploadModal={() => setIsUploadModalOpen(true)}
+          onOpenPrescriptionModal={() => setIsPrescriptionModalOpen(true)}
         />
       )}
       {page === 'about-us' && (
@@ -582,6 +588,7 @@ export default function App() {
           currentUser={currentUser}
           onLogout={handleLogout}
           onOpenUploadModal={() => setIsUploadModalOpen(true)}
+          onOpenPrescriptionModal={() => setIsPrescriptionModalOpen(true)}
         />
       )}
 
@@ -635,11 +642,19 @@ export default function App() {
         </div>
       )}
 
-      {/* Upload Modal Popup */}
+      {/* Upload Modal Popup for General Medical Documents */}
       <UploadModal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
         onUploadSuccess={(record) => handleSaveUpload(record, true)}
+      />
+
+      {/* Upload Prescription Modal Popup */}
+      <PrescriptionUploadModal
+        isOpen={isPrescriptionModalOpen}
+        onClose={() => setIsPrescriptionModalOpen(false)}
+        onUploadSuccess={(record) => handleSaveUpload(record, true)}
+        currentUser={currentUser}
       />
     </div>
   );
