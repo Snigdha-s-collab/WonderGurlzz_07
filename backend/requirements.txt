@@ -9,3 +9,6 @@ pypdf
 pypdfium2
 pillow
 tiktoken
+json-repair
+
+json-repair
