@@ -22,18 +22,17 @@ function Icon({ name, className = '' }) {
 function renderTextWithCitations(rawText, lineContext, onOpenCitation) {
   if (!rawText) return null;
 
-  // Split on all forms of bracketed or parenthesized document references or inline Document upload- IDs
-  const citationSplitRegex = /(\[[^\]]*(?:upload-\d+|Document|Doc)[^\]]*\]|\([^)]*(?:upload-\d+|Document|Doc)[^)]*\)|Document\s+upload-\d+(?:,\s*Page\s*\d+)?)/gi;
+  // Split strictly on valid document citation patterns (never on generic sentences containing the word "document")
+  const citationSplitRegex = /(\[(?:Document|Doc)?\s*:?\s*upload-\d+[^\]]*\]|\((?:Document|Doc)?\s*:?\s*upload-\d+[^)]*\)|Document\s+upload-\d+(?:,\s*Page\s*\d+)?)/gi;
 
   const segments = rawText.split(citationSplitRegex);
 
   return segments.map((segment, segIdx) => {
-    // Check if this segment contains a document reference
+    // Check if this segment contains a real document identifier upload-
     const uploadMatch = segment.match(/upload-\d+/i);
-    const docWordMatch = segment.match(/(?:Document|Doc)\s*:?\s*([a-zA-Z0-9_\-]+)/i);
-    const docId = uploadMatch ? uploadMatch[0] : (docWordMatch ? docWordMatch[1] : null);
+    const docId = uploadMatch ? uploadMatch[0] : null;
 
-    if (docId && docId.toLowerCase() !== 'document' && docId.toLowerCase() !== 'doc') {
+    if (docId) {
       const pageMatch = segment.match(/Page\s*(\d+)/i);
       const pageNumber = pageMatch ? pageMatch[1] : '1';
 
