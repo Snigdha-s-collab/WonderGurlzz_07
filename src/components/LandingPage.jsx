@@ -34,7 +34,7 @@ export default function LandingPage({
             <div className="w-10 h-10 rounded-full teal-gradient-btn flex items-center justify-center shadow-orb-glow">
               <span className="text-white font-black text-sm">Dr.</span>
             </div>
-            <div className="text-white font-bold text-lg leading-tight">Hola</div>
+            <div className="text-white font-bold text-lg leading-tight">OnePatient</div>
           </div>
 
           {/* Desktop Nav */}
@@ -47,6 +47,8 @@ export default function LandingPage({
                     heroRef.current?.scrollIntoView({ behavior: 'smooth' });
                   } else if (link === 'My Uploads') {
                     setPage('my-uploads');
+                  } else if (link === 'Current Medication') {
+                    setPage('current-medication');
                   } else if (link === 'Access QR') {
                     setPage('access-qr');
                   } else if (link === 'About Us') {
@@ -118,6 +120,8 @@ export default function LandingPage({
                     heroRef.current?.scrollIntoView({ behavior: 'smooth' });
                   } else if (link === 'My Uploads') {
                     setPage('my-uploads');
+                  } else if (link === 'Current Medication') {
+                    setPage('current-medication');
                   } else if (link === 'Access QR') {
                     setPage('access-qr');
                   } else if (link === 'About Us') {
@@ -179,14 +183,6 @@ export default function LandingPage({
         <div className="relative z-10 max-w-7xl mx-auto px-6 py-6 flex flex-col lg:flex-row items-center gap-12 flex-1 justify-center">
           {/* Left text */}
           <div className="flex-1 text-center lg:text-left">
-            {/* Badge */}
-            <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-4 py-2 mb-6">
-              <span className="w-2 h-2 rounded-full bg-teal-400 pulsing-dot" />
-              <span className="text-teal-200 text-xs font-semibold tracking-wide">
-                Federated Health Record Ledger 2.0
-              </span>
-            </div>
-
             <h1 className="text-4xl lg:text-6xl font-extrabold text-white leading-tight mb-6">
               Your Health Story,{' '}
               <span className="bg-gradient-to-r from-teal-300 to-teal-500 bg-clip-text text-transparent">
@@ -198,13 +194,22 @@ export default function LandingPage({
               Bring your prescriptions, lab reports, scans, and medical history together in one secure platform. Find important health information easily, understand your medical journey, and keep your records organised whenever you need them.
             </p>
 
-            <button
-              onClick={onOpenUploadModal}
-              className="inline-flex items-center gap-2 teal-gradient-btn text-white font-bold px-8 py-4 rounded-full text-base shadow-pill-glow hover:scale-105 transition-transform"
-            >
-              <Icon name="upload" className="text-xl" />
-              Upload
-            </button>
+            <div className="flex flex-wrap items-center gap-4 justify-center lg:justify-start">
+              <button
+                onClick={onOpenUploadModal}
+                className="inline-flex items-center gap-2 teal-gradient-btn text-white font-bold px-8 py-4 rounded-full text-base shadow-pill-glow hover:scale-105 transition-transform"
+              >
+                <Icon name="upload" className="text-xl" />
+                Upload
+              </button>
+              <button
+                onClick={() => setPage('current-medication')}
+                className="inline-flex items-center gap-2.5 bg-white/10 hover:bg-white/20 text-white font-bold px-8 py-4 rounded-full text-base border border-teal-300/40 shadow-pill-glow hover:scale-105 transition-transform backdrop-blur-md"
+              >
+                <Icon name="medication" className="text-xl text-teal-300" />
+                Current Medication
+              </button>
+            </div>
           </div>
 
           {/* Right image */}

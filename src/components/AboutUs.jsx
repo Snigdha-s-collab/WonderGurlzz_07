@@ -221,7 +221,7 @@ export default function AboutUs({ setPage, currentUser, onLogout, onOpenUploadMo
             >
               <span className="text-white font-black text-sm">Dr.</span>
             </button>
-            <div className="text-white font-bold text-lg leading-tight">Hola</div>
+            <div className="text-white font-bold text-lg leading-tight">OnePatient</div>
           </div>
 
           {/* Desktop Nav */}
@@ -232,6 +232,7 @@ export default function AboutUs({ setPage, currentUser, onLogout, onOpenUploadMo
                 onClick={() => {
                   if (link === 'Home') setPage('landing');
                   else if (link === 'My Uploads') setPage('my-uploads');
+                  else if (link === 'Current Medication') setPage('current-medication');
                   else if (link === 'Access QR') setPage('access-qr');
                   else if (link === 'About Us') setPage('about-us');
                   else if (link === 'Ask MedBot') setPage('medbot');

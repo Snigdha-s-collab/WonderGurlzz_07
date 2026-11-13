@@ -36,6 +36,9 @@ BAD_QUERY_PATTERNS = [
     r"\bwallet\s*seed\b",
     r"\bignore\s+(?:previous|above)\s+instructions\b",
     r"\bhack\b",
+    r"\bfinancial\b",
+    r"\bnet\s*worth\b",
+    r"\bsalary\b",
 ]
 
 BAD_QUERY_REGEX = re.compile("|".join(BAD_QUERY_PATTERNS), re.IGNORECASE)
@@ -49,8 +52,8 @@ def check_query_guardrail(query: str) -> Optional[str]:
     if BAD_QUERY_REGEX.search(query):
         return (
             "I am MedBot, your clinical record assistant. I can only answer questions related to your "
-            "uploaded medical reports, prescriptions, and health history. I cannot provide or handle "
-            "financial information (such as credit card numbers), sensitive passwords, or unrelated data."
+            "uploaded medical reports, doctor consultations, and prescriptions. I cannot provide or access "
+            "financial information (such as credit card numbers), passwords, or unrelated personal credentials."
         )
     return None
 
@@ -148,12 +151,12 @@ def answer_medical_query(patient_id: str, query: str) -> Dict[str, Any]:
         "medical record excerpts below.\n\n"
         "STRICT GROUNDING & CLINICAL SAFETY RULES:\n"
         "1. Answer ONLY using the explicit facts present in the provided medical excerpts. NEVER extrapolate, assume, or guess.\n"
-        "2. If the user asks about a condition, disease, or medication NOT mentioned in the records (for example: 'Do I have cancer?'), "
-        "you must clearly and affirmatively state that their uploaded records show NO indication, diagnosis, or testing for that condition, "
-        "and summarize what conditions/medications ARE recorded.\n"
-        "3. Cite the attending physician (e.g. Dr. Rajiv), clinic, and page number whenever answering about prescribed medications or findings.\n"
-        "4. If the record does not answer the question, state: 'Your uploaded medical records do not mention this.'\n"
-        "5. Conclude with a brief note that MedBot provides information from records and does not substitute for direct medical consultation."
+        "2. If the user asks about a condition, illness, symptom, or test NOT mentioned or diagnosed in the records (for example: 'Do I have cancer?' or 'Do I have diabetes?'), "
+        "you must clearly and directly state that their uploaded medical records show NO indication, diagnosis, or testing for that condition. "
+        "CRITICAL: Do NOT list, dump, or display any prescribed medications unless the patient explicitly asks about their medications, prescriptions, or dosages.\n"
+        "3. If the user asks an irrelevant, non-medical, or out-of-scope question, give a polite, concise clarification stating you only answer questions about their verified medical records, and do NOT list any medications.\n"
+        "4. When answering questions where the user asks about prescribed medications, doctor findings, or reports, specify the attending doctor's name and ALWAYS append the document citation in brackets right beside each item, in this exact format: [Document <doc_id>, Page <page_number>] (for example: [Document upload-1794606161615, Page 1]).\n"
+        "5. Conclude with a brief note: '*Note: MedBot provides information derived directly from your medical records and does not substitute for direct medical consultation.*'"
     )
 
     user_prompt = f"Patient Question:\n{clean_query}\n\nVerified Patient Medical Records:\n{formatted_context}"

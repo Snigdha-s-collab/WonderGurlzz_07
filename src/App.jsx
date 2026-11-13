@@ -9,6 +9,7 @@ import AboutUs from './components/AboutUs';
 import AccessQRPage from './components/AccessQRPage';
 import DoctorPortalView from './components/DoctorPortalView';
 import AskMedBot from './components/AskMedBot';
+import CurrentMedication from './components/CurrentMedication';
 import { formatTime24To12 } from './services/medbotAgent';
 import {
   fetchRecordsFromSupabase,
@@ -54,6 +55,7 @@ function getPageFromHash() {
   if (hash === 'dashboard') return 'dashboard';
   if (hash === 'audit') return 'audit';
   if (hash === 'my-uploads') return 'my-uploads';
+  if (hash === 'current-medication' || hash === 'medication' || hash === 'current-medications') return 'current-medication';
   if (hash === 'medbot') return 'medbot';
   if (hash === 'about-us' || hash === 'about') return 'about-us';
   if (hash === 'access-qr') return 'access-qr';
@@ -98,7 +100,7 @@ export default function App() {
   const [realtimeToast, setRealtimeToast] = useState('');
 
   // Master records collection (synced directly from Supabase database)
-  const [allRecords, setAllRecords] = useState(() => {
+  const [uploads, setUploads] = useState(() => {
     try {
       const stored = localStorage.getItem('onepatient_user_uploads');
       if (!stored) return [];
@@ -142,8 +144,10 @@ export default function App() {
       console.error(e);
       return [];
     }
-    return [];
   });
+
+  const allRecords = uploads;
+  const setAllRecords = setUploads;
 
   // Sharing groups & active members for the current user
   const [sharingGroups, setSharingGroups] = useState([]);
@@ -248,6 +252,33 @@ export default function App() {
       unsubscribeFromMedicalRecords(channel);
     };
   }, [currentUser]);
+
+  // Global drag-and-drop security: prevent browser from navigating away if a user drops a file anywhere
+  useEffect(() => {
+    const handleGlobalDrag = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const handleGlobalDrop = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    window.addEventListener('dragover', handleGlobalDrag);
+    window.addEventListener('dragenter', handleGlobalDrag);
+    window.addEventListener('dragleave', handleGlobalDrag);
+    window.addEventListener('drop', handleGlobalDrop);
+    document.addEventListener('dragover', handleGlobalDrag);
+    document.addEventListener('drop', handleGlobalDrop);
+
+    return () => {
+      window.removeEventListener('dragover', handleGlobalDrag);
+      window.removeEventListener('dragenter', handleGlobalDrag);
+      window.removeEventListener('dragleave', handleGlobalDrag);
+      window.removeEventListener('drop', handleGlobalDrop);
+      document.removeEventListener('dragover', handleGlobalDrag);
+      document.removeEventListener('drop', handleGlobalDrop);
+    };
+  }, []);
 
   const [reminders, setReminders] = useState(() => {
     try {
@@ -415,7 +446,7 @@ const handleOpenMedBot = (uploadId = null) => {
 };
 
 // Add new uploaded record, persist locally and push to Supabase
-  const handleSaveUpload = async (newRecord, shouldRedirect = true) => {
+  const handleSaveUpload = async (newRecord, shouldRedirect = false) => {
     const updated = [newRecord, ...uploads];
     setUploads(updated);
     try {
@@ -429,9 +460,9 @@ const handleOpenMedBot = (uploadId = null) => {
       console.error(e);
     }
 
-    // 3. Navigate directly to My Uploads if requested
+    // Navigate to My Uploads if explicitly requested
     if (shouldRedirect) {
-      navigateTo('landing');
+      navigateTo('my-uploads');
     }
   };
 
@@ -584,6 +615,21 @@ const handleOpenMedBot = (uploadId = null) => {
             onOpenMedBot={handleOpenMedBot}
           />
         )}
+        {page === 'current-medication' && (
+          <CurrentMedication
+            setPage={navigateTo}
+            uploads={uploads}
+            currentUser={currentUser}
+            onLogout={handleLogout}
+            onOpenUploadModal={() => setIsUploadModalOpen(true)}
+            notifications={notifications}
+            reminders={reminders}
+            onMarkTaken={handleMarkTaken}
+            onDismissNotification={handleDismissNotification}
+            onTriggerTestReminder={handleTriggerTestReminder}
+            onOpenMedBot={handleOpenMedBot}
+          />
+        )}
         {page === 'medbot' && (
           <AskMedBot
             setPage={navigateTo}
@@ -691,7 +737,9 @@ const handleOpenMedBot = (uploadId = null) => {
         <UploadModal
           isOpen={isUploadModalOpen}
           onClose={() => setIsUploadModalOpen(false)}
-          onUploadSuccess={(record) => handleSaveUpload(record, true)}
+          onUploadSuccess={(record) => handleSaveUpload(record, false)}
+          currentUser={currentUser}
+          sharingGroups={sharingGroups}
         />
       </div>
     );

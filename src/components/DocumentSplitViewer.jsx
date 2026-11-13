@@ -11,6 +11,7 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
   const [rotation, setRotation] = useState(0);
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [copiedJson, setCopiedJson] = useState(false);
 
   // Live on-demand OCR state
   const [currentOcr, setCurrentOcr] = useState(record?.ocrData || null);
@@ -139,12 +140,19 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
     }
   };
 
-  // Automatically trigger extraction on open if record has no OCR data yet
+  // Automatically trigger extraction on open if record has no OCR data yet or if it was an error
   useEffect(() => {
-    if (record && !record.ocrData && !currentOcr && !isAnalyzing && imageSource) {
+    const hasError =
+      record?.ocrData?.summary?.includes('could not be completed') ||
+      record?.ocrData?.summary?.includes('validation error') ||
+      record?.ocrData?.summary?.includes('Error in Qwen') ||
+      currentOcr?.summary?.includes('could not be completed') ||
+      currentOcr?.summary?.includes('validation error');
+
+    if (record && (!record.ocrData || hasError) && !isAnalyzing && imageSource) {
       handleRunOcr();
     }
-  }, [record?.id]);
+  }, [record?.id, imageSource]);
 
   const handleVerifyTranscription = async () => {
     if (!currentOcr) return;
@@ -182,6 +190,15 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
       navigator.clipboard.writeText(textToCopy);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleCopyJson = () => {
+    const jsonStr = JSON.stringify(currentOcr || record?.ocrData || {}, null, 2);
+    if (jsonStr) {
+      navigator.clipboard.writeText(jsonStr);
+      setCopiedJson(true);
+      setTimeout(() => setCopiedJson(false), 2000);
     }
   };
 
@@ -242,18 +259,6 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
 
         {/* Action Controls */}
         <div className="flex items-center gap-2">
-          {imageSource && (
-            <button
-              onClick={handleRunOcr}
-              disabled={isAnalyzing}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-teal-800 hover:bg-teal-700 border border-teal-400/60 text-white text-xs font-bold transition-all disabled:opacity-50"
-              title="Run or Re-run Qwen2.5-VL Vision Extraction"
-            >
-              <Icon name="psychology" className={`text-base ${isAnalyzing ? 'animate-spin' : ''}`} />
-              <span>{isAnalyzing ? 'Analyzing...' : currentOcr ? 'Re-analyze' : 'Extract with Qwen2.5-VL'}</span>
-            </button>
-          )}
-
           <button
             onClick={onClose}
             className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
@@ -407,41 +412,6 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
 
         {/* ════════ RIGHT SCREEN: AI QWEN2.5-VL-7B-INSTRUCT EXTRACTION ════════ */}
         <section className="bg-white flex flex-col overflow-hidden">
-          {/* ── CLINICAL VERIFICATION & SAFETY BANNER (Requirement 7) ── */}
-          {currentOcr?.is_verified_by_user ? (
-            <div className="bg-emerald-500/10 border-b border-emerald-500/30 px-4 py-2 flex flex-wrap items-center justify-between text-emerald-900 text-xs flex-shrink-0 gap-2">
-              <div className="flex items-center gap-2 font-bold">
-                <Icon name="verified" className="text-emerald-600 text-base flex-shrink-0" />
-                <span>✓ Clinically Confirmed & Verified by Healthcare Professional (Saved to Database)</span>
-              </div>
-              <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                Verified: {currentOcr.verified_at ? new Date(currentOcr.verified_at).toLocaleDateString() : 'Confirmed'}
-              </span>
-            </div>
-          ) : (
-            <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2.5 flex flex-wrap items-center justify-between text-amber-900 text-xs flex-shrink-0 gap-2">
-              <div className="flex items-center gap-2 font-bold">
-                <Icon name="warning" className="text-amber-600 text-base flex-shrink-0" />
-                <span>Clinical AI Transcription – Requires Physician Verification</span>
-              </div>
-              <div className="flex items-center gap-2">
-                {currentOcr && (
-                  <button
-                    onClick={handleVerifyTranscription}
-                    disabled={isVerifying}
-                    className="teal-gradient-btn text-white text-[11px] font-bold px-3 py-1 rounded-full shadow-sm flex items-center gap-1 hover:scale-105 active:scale-95 transition-transform disabled:opacity-50"
-                  >
-                    <Icon name="check_circle" className="text-xs" />
-                    <span>{isVerifying ? 'Saving...' : 'Verify & Confirm'}</span>
-                  </button>
-                )}
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 flex-shrink-0">
-                  Unverified
-                </span>
-              </div>
-            </div>
-          )}
-
           {/* Subheader & Model Badges */}
           <div className="bg-slate-50 px-5 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
             <div className="flex items-center gap-2.5">
@@ -453,12 +423,6 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
                   <h3 className="font-extrabold text-sm text-[#00241f]">
                     Qwen2.5-VL Clinical OCR
                   </h3>
-                  {currentOcr && (
-                    <span className="px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 text-[10px] font-bold flex items-center gap-1 border border-teal-300">
-                      <Icon name="verified" className="text-xs text-teal-600" />
-                      <span>{Math.round((currentOcr.confidence_score || 0.85) * 100)}% Confidence</span>
-                    </span>
-                  )}
                 </div>
                 <p className="text-[11px] text-slate-500 font-mono">
                   Type: <strong className="text-teal-900 uppercase">{docType.replace('_', ' ')}</strong> • Model: {currentOcr?.model_name || 'qwen/qwen2.5-vl-72b-instruct'}
@@ -473,26 +437,44 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
             </div>
           </div>
 
-          {/* Tab Navigation */}
-          <div className="flex items-center border-b border-slate-200 bg-white px-5 pt-2 flex-shrink-0 gap-2">
-            {[
-              { id: 'structured', label: 'Structured Clinical Data', icon: 'fact_check' },
-              { id: 'raw', label: 'Raw Transcription', icon: 'text_snippet' },
-              { id: 'json', label: 'Technical JSON', icon: 'code' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold border-b-2 transition-all ${
-                  activeTab === tab.id
-                    ? 'border-teal-700 text-teal-900 bg-teal-50/50 rounded-t-lg'
-                    : 'border-transparent text-slate-500 hover:text-slate-900'
-                }`}
-              >
-                <Icon name={tab.icon} className="text-base" />
-                <span>{tab.label}</span>
-              </button>
-            ))}
+          {/* Tab Navigation: Structured Clinical Data | Clinical JSON Format | Raw Digitized Text */}
+          <div className="flex items-center border-b border-slate-200 bg-white px-5 pt-2 flex-shrink-0 gap-2 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setActiveTab('structured')}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold rounded-t-lg transition-all ${
+                activeTab === 'structured'
+                  ? 'border-b-2 border-teal-700 text-teal-900 bg-teal-50/60'
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <Icon name="fact_check" className="text-base text-teal-700" />
+              <span>Structured Clinical Data</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('json')}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold rounded-t-lg transition-all ${
+                activeTab === 'json'
+                  ? 'border-b-2 border-teal-700 text-teal-900 bg-teal-50/60'
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <Icon name="data_object" className="text-base text-teal-700" />
+              <span>Verified Clinical JSON</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('raw')}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold rounded-t-lg transition-all ${
+                activeTab === 'raw'
+                  ? 'border-b-2 border-teal-700 text-teal-900 bg-teal-50/60'
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <Icon name="article" className="text-base text-teal-700" />
+              <span>Digitized Raw Text</span>
+            </button>
           </div>
 
           {/* Loading / Error States */}
@@ -563,9 +545,12 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
                           {renderValue(rx?.patient_name)}
                           {rx?.patient_age_or_gender && (
                             <span className="text-xs text-teal-800 font-mono bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
-                              Age/Gender: {rx.patient_age_or_gender}
+                              Age: {rx.patient_age_or_gender}
                             </span>
                           )}
+                          <span className="text-xs text-teal-800 font-mono bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                            Weight: {rx?.patient_weight || 'Not specified'}
+                          </span>
                         </div>
                       </div>
                       {rx?.diagnosis_or_symptoms && rx.diagnosis_or_symptoms.length > 0 && (
@@ -597,15 +582,44 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
                           {rx.medicines.map((med, idx) => (
                             <div
                               key={idx}
-                              className="p-3 rounded-xl border bg-slate-50/80 border-slate-200 hover:border-teal-300 flex items-center justify-between transition-all"
+                              className="p-3.5 rounded-xl border bg-slate-50/80 border-slate-200 hover:border-teal-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-all"
                             >
                               <div className="flex items-center gap-3">
-                                <span className="w-6 h-6 rounded-lg bg-teal-100 text-teal-900 font-bold text-xs flex items-center justify-center">
+                                <span className="w-6 h-6 rounded-lg bg-teal-100 text-teal-900 font-bold text-xs flex items-center justify-center flex-shrink-0">
                                   {idx + 1}
                                 </span>
-                                <span className="font-extrabold text-sm text-slate-900">
-                                  {med.name}
-                                </span>
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-extrabold text-sm text-slate-900">
+                                      {med.name}
+                                    </span>
+                                    {med.strength && (
+                                      <span className="px-2 py-0.5 rounded-md bg-teal-50 border border-teal-200 text-teal-900 font-semibold text-xs">
+                                        {med.strength}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {med.timing_instructions && (
+                                    <p className="text-[11px] text-slate-500 mt-0.5">{med.timing_instructions}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 self-start sm:self-auto text-xs flex-wrap">
+                                {med.dosage && (
+                                  <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 font-medium text-slate-700 shadow-2xs">
+                                    {med.dosage}
+                                  </span>
+                                )}
+                                {med.frequency && (
+                                  <span className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 font-bold text-emerald-800 shadow-2xs">
+                                    {med.frequency}
+                                  </span>
+                                )}
+                                {med.duration && (
+                                  <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-[11px]">
+                                    {med.duration}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -872,7 +886,7 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
                     <Icon name="psychology" className="text-4xl text-teal-600 mx-auto" />
                     <h4 className="font-bold text-slate-800 text-sm">Document Ready for Qwen2.5-VL Extraction</h4>
                     <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                      Click the button above to extract medicine names, dosages, or laboratory findings using the hosted Qwen2.5-VL-7B-Instruct model.
+                      Click below to extract medicine names, dosages, or laboratory findings using the hosted Qwen2.5-VL-7B-Instruct model.
                     </p>
                     <button
                       onClick={handleRunOcr}
@@ -885,47 +899,73 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
               </div>
             )}
 
-            {/* ── TAB 2: RAW TRANSCRIPTION (Requirement 6) ── */}
-            {activeTab === 'raw' && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <Icon name="code" className="text-teal-600 text-sm" />
-                    <span>Raw Transcribed Document Text</span>
-                  </h4>
-                  {currentOcr?.raw_transcription && (
+            {/* ── TAB 2: VERIFIED CLINICAL JSON FORMAT ── */}
+            {activeTab === 'json' && (
+              <div className="space-y-4">
+                <div className="bg-slate-900 rounded-2xl p-4 shadow-sm border border-slate-800 text-xs">
+                  <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-2.5 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-teal-500/20 text-teal-400 flex items-center justify-center">
+                        <Icon name="data_object" className="text-base" />
+                      </div>
+                      <div>
+                        <span className="font-extrabold text-slate-100 text-xs sm:text-sm block">
+                          Verified Clinical Entity JSON Format
+                        </span>
+                        <span className="text-[10px] text-teal-400 font-mono">
+                          Direct output of image text converted into structured clinical JSON
+                        </span>
+                      </div>
+                    </div>
                     <button
-                      onClick={handleCopyTranscription}
-                      className="text-xs font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1"
+                      type="button"
+                      onClick={handleCopyJson}
+                      className="px-3.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm"
+                      title="Copy complete JSON payload"
                     >
-                      <Icon name={copied ? 'check' : 'content_copy'} className="text-xs" />
-                      <span>{copied ? 'Copied to Clipboard' : 'Copy Text'}</span>
+                      <Icon name={copiedJson ? 'check' : 'content_copy'} className="text-xs" />
+                      <span>{copiedJson ? 'Copied!' : 'Copy JSON'}</span>
                     </button>
-                  )}
-                </div>
-
-                <div className="bg-slate-900 text-slate-100 rounded-2xl p-5 font-mono text-xs leading-relaxed border border-slate-800 shadow-inner whitespace-pre-wrap select-text">
-                  {currentOcr?.raw_transcription || (
-                    <span className="text-slate-500 italic">
-                      No raw transcription available yet. Click "Extract with Qwen2.5-VL" to process the image.
-                    </span>
-                  )}
+                  </div>
+                  <pre className="font-mono text-teal-300 text-[11px] sm:text-xs overflow-x-auto p-4 bg-slate-950 rounded-xl max-h-[64vh] leading-relaxed whitespace-pre-wrap border border-slate-800/80">
+                    {JSON.stringify(currentOcr || record.ocrData || {}, null, 2)}
+                  </pre>
                 </div>
               </div>
             )}
 
-            {/* ── TAB 3: TECHNICAL JSON ── */}
-            {activeTab === 'json' && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <Icon name="data_object" className="text-teal-600 text-sm" />
-                    <span>Structured JSON Payload</span>
-                  </h4>
+            {/* ── TAB 3: DIGITIZED RAW TEXT ── */}
+            {activeTab === 'raw' && (
+              <div className="space-y-4">
+                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 text-xs">
+                  <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2.5 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center border border-teal-200">
+                        <Icon name="article" className="text-base" />
+                      </div>
+                      <div>
+                        <span className="font-extrabold text-slate-900 text-xs sm:text-sm block">
+                          Verbatim Digitized Text from Image
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          Exact handwriting and print transcribed by model
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCopyTranscription}
+                      className="px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center gap-1.5 transition-colors"
+                      title="Copy transcription text"
+                    >
+                      <Icon name={copied ? 'check' : 'content_copy'} className="text-xs" />
+                      <span>{copied ? 'Copied!' : 'Copy Text'}</span>
+                    </button>
+                  </div>
+                  <pre className="font-mono text-slate-800 text-xs sm:text-[13px] overflow-x-auto p-4 bg-slate-50 border border-slate-200 rounded-xl max-h-[64vh] leading-relaxed whitespace-pre-wrap">
+                    {currentOcr?.raw_transcription || 'No digitized transcription available for this record.'}
+                  </pre>
                 </div>
-                <pre className="bg-slate-900 text-teal-300 rounded-2xl p-4 font-mono text-[11px] overflow-x-auto border border-slate-800 shadow-inner">
-                  {currentOcr ? JSON.stringify(currentOcr, null, 2) : '// No OCR payload extracted yet'}
-                </pre>
               </div>
             )}
           </div>

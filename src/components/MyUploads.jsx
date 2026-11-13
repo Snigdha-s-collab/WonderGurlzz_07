@@ -205,17 +205,18 @@ export default function MyUploads({
             >
               <span className="text-white font-black text-sm">Dr.</span>
             </button>
-            <div className="text-white font-bold text-lg leading-tight">Hola</div>
+            <div className="text-white font-bold text-lg leading-tight">OnePatient</div>
           </div>
 
           {/* Nav pills */}
           <nav className="hidden md:flex items-center glass-nav-card rounded-full px-6 py-2 gap-6">
-            {['Home', 'My Uploads', 'Access QR', 'Ask MedBot', 'About Us'].map((link) => (
+            {['Home', 'My Uploads', 'Current Medication', 'Access QR', 'Ask MedBot', 'About Us'].map((link) => (
               <button
                 key={link}
                 onClick={() => {
                   if (link === 'Home') setPage('landing');
                   else if (link === 'My Uploads') setPage('my-uploads');
+                  else if (link === 'Current Medication') setPage('current-medication');
                   else if (link === 'Access QR') setPage('access-qr');
                   else if (link === 'About Us') setPage('about-us');
                   else if (link === 'Ask MedBot') {

@@ -6,7 +6,7 @@ Includes mandatory safety flags for unreadable text and human verification.
 
 from enum import Enum
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class DocumentType(str, Enum):
@@ -59,6 +59,7 @@ class PrescriptionDetails(BaseModel):
     date_of_consultation: Optional[str] = Field(None, description="Date noted on prescription")
     patient_name: Optional[str] = Field(None, description="Patient name if visible on document")
     patient_age_or_gender: Optional[str] = Field(None, description="Age and gender if noted (e.g., '34/M')")
+    patient_weight: Optional[str] = Field(None, description="Patient weight if visible on document (e.g., '68 kg')")
     diagnosis_or_symptoms: List[str] = Field(
         default_factory=list,
         description="Clinical diagnosis, symptoms, or chief complaints noted by doctor"
@@ -75,6 +76,22 @@ class PrescriptionDetails(BaseModel):
         None,
         description="Follow-up timeframe (e.g., 'Review after 2 weeks', 'SOS if fever persists')"
     )
+
+    @field_validator("diagnosis_or_symptoms", "general_advice_or_lifestyle", mode="before")
+    @classmethod
+    def coerce_prescription_lists(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            v_str = v.strip()
+            return [v_str] if v_str else []
+        if isinstance(v, list):
+            res = []
+            for item in v:
+                if item is not None and str(item).strip():
+                    res.append(str(item).strip())
+            return res
+        return []
 
 
 # ============================================================================
@@ -119,6 +136,22 @@ class ReportDetails(BaseModel):
         default_factory=list,
         description="Summary impressions, radiological conclusions, or diagnostic opinions"
     )
+
+    @field_validator("key_findings", "conclusions_or_impression", mode="before")
+    @classmethod
+    def coerce_report_lists(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            v_str = v.strip()
+            return [v_str] if v_str else []
+        if isinstance(v, list):
+            res = []
+            for item in v:
+                if item is not None and str(item).strip():
+                    res.append(str(item).strip())
+            return res
+        return []
 
 
 # ============================================================================
@@ -186,6 +219,27 @@ class MedicalOCRResponse(BaseModel):
         ...,
         description="Auto-detected category of the uploaded document"
     )
+
+    @field_validator("document_type", mode="before")
+    @classmethod
+    def coerce_doc_type(cls, v):
+        if isinstance(v, str):
+            v_clean = v.lower().strip()
+            if "presc" in v_clean:
+                return DocumentType.PRESCRIPTION
+            if "lab" in v_clean:
+                return DocumentType.LABORATORY_TEST
+            if "radiology" in v_clean or "x-ray" in v_clean or "mri" in v_clean or "ct" in v_clean:
+                return DocumentType.RADIOLOGY_IMAGING
+            if "discharge" in v_clean:
+                return DocumentType.DISCHARGE_SUMMARY
+            if "report" in v_clean:
+                return DocumentType.MEDICAL_REPORT
+            for dt in DocumentType:
+                if dt.value == v_clean:
+                    return dt
+            return DocumentType.OTHER
+        return v
     confidence_score: float = Field(
         default=0.95,
         ge=0.0,

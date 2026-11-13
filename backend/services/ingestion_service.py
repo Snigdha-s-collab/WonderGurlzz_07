@@ -22,9 +22,10 @@ from backend.services.embedding_service import embed_chunks
 logger = logging.getLogger("rag_ingestion.pipeline")
 
 
-def ingest_record(record_id: str, client: Optional[Client] = None) -> Dict[str, Any]:
+async def ingest_record(record_id: str, client: Optional[Client] = None) -> Dict[str, Any]:
     """
     Ingest a single medical record into the vector database.
+    Also ensures structured prescription OCR data is extracted and synced to medical_records.ocr_data.
     
     Args:
         record_id: ID of the record in table 'medical_records'.
@@ -39,12 +40,48 @@ def ingest_record(record_id: str, client: Optional[Client] = None) -> Dict[str, 
     now_iso = datetime.now(timezone.utc).isoformat()
 
     # 1. Fetch record from medical_records
-    res = client.table("medical_records").select("id, patient_id, title").eq("id", record_id).execute()
+    res = client.table("medical_records").select("id, patient_id, title, files, ocr_data").eq("id", record_id).execute()
     if not res.data:
         raise ValueError(f"Record '{record_id}' not found in 'medical_records'.")
 
     record = res.data[0]
     patient_id = record.get("patient_id") or "UNKNOWN_PATIENT"
+
+    # Auto-extract structured prescription OCR data if missing or incomplete
+    current_ocr = record.get("ocr_data")
+    if not current_ocr or not current_ocr.get("prescription_data"):
+        try:
+            files = record.get("files") or []
+            if files and isinstance(files, list):
+                from backend.services.extraction_service import download_file_bytes, render_pdf_page_to_image
+                from backend.model_runner import analyze_medical_document
+                import base64
+                import io
+
+                for f in files:
+                    try:
+                        file_bytes, mime_type = download_file_bytes(client, f, patient_id=patient_id, record_id=record_id)
+                        img_bytes = None
+                        if "pdf" in mime_type.lower() or file_bytes.startswith(b"%PDF"):
+                            import pypdf
+                            reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+                            if len(reader.pages) > 0:
+                                img_bytes = render_pdf_page_to_image(reader.pages[0], file_bytes, 0)
+                        elif mime_type.startswith("image/"):
+                            img_bytes = file_bytes
+
+                        if img_bytes:
+                            b64 = base64.b64encode(img_bytes).decode("utf-8")
+                            ocr_resp = await analyze_medical_document(b64)
+                            if ocr_resp and ocr_resp.prescription_data and ocr_resp.prescription_data.medicines:
+                                ocr_dict = ocr_resp.model_dump()
+                                client.table("medical_records").update({"ocr_data": ocr_dict}).eq("id", record_id).execute()
+                                logger.info(f"Successfully auto-extracted and stored ocr_data for record {record_id}")
+                                break
+                    except Exception as file_ocr_err:
+                        logger.warning(f"File OCR extraction error for {f.get('name')}: {file_ocr_err}")
+        except Exception as ocr_err:
+            logger.warning(f"Auto-OCR extraction error for record {record_id}: {ocr_err}")
 
     # 2. Mark ingestion as processing
     try:

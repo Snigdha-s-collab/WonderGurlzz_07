@@ -54,7 +54,7 @@ async def ingest_record_endpoint(record_id: str):
     - Atomically saves chunks to Supabase vector DB
     """
     try:
-        result = ingest_record(record_id)
+        result = await ingest_record(record_id)
         return {
             "status": "success",
             "data": result,

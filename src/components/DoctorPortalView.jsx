@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react';
 import DocumentSplitViewer from './DocumentSplitViewer';
-import { fetchRecordsFromSupabase } from '../lib/supabaseClient';
+import CurrentMedication from './CurrentMedication';
+import {
+  fetchRecordsFromSupabase,
+  subscribeToMedicalRecords,
+  unsubscribeFromMedicalRecords,
+} from '../lib/supabaseClient';
 
 function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
@@ -50,6 +55,7 @@ export default function DoctorPortalView({ setPage, uploads = [], onUpdateRecord
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedRecordForViewer, setSelectedRecordForViewer] = useState(null);
   const [portalRecords, setPortalRecords] = useState(() => (uploads || []).filter(isLegitRecord));
+  const [viewMode, setViewMode] = useState('records'); // 'records' | 'medications'
 
   useEffect(() => {
     if (uploads && uploads.length > 0) {
@@ -58,16 +64,49 @@ export default function DoctorPortalView({ setPage, uploads = [], onUpdateRecord
   }, [uploads]);
 
   useEffect(() => {
-    fetchRecordsFromSupabase().then((remote) => {
-      if (remote && remote.length > 0) {
-        setPortalRecords(remote.filter(isLegitRecord));
+    let isMounted = true;
+    async function refreshPortalRecords() {
+      try {
+        const remote = await fetchRecordsFromSupabase();
+        if (isMounted && remote && remote.length > 0) {
+          setPortalRecords(remote.filter(isLegitRecord));
+        }
+      } catch (err) {
+        console.warn('DoctorPortal fetch notice:', err);
       }
+    }
+    refreshPortalRecords();
+
+    const channel = subscribeToMedicalRecords(() => {
+      refreshPortalRecords();
     });
+
+    const interval = setInterval(() => {
+      refreshPortalRecords();
+    }, 4000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      if (channel) unsubscribeFromMedicalRecords(channel);
+    };
   }, []);
 
   const filteredRecords = portalRecords.filter((item) => {
     return selectedCategory === 'All' || item.category === selectedCategory;
   });
+
+  if (viewMode === 'medications') {
+    return (
+      <CurrentMedication
+        isDoctorPortal={true}
+        patientName={patient}
+        onBackToRecords={() => setViewMode('records')}
+        uploads={portalRecords}
+        setPage={setPage}
+      />
+    );
+  }
 
   return (
     <div className="bg-[#faf8ff] text-[#131b2e] min-h-screen flex flex-col">
@@ -80,7 +119,7 @@ export default function DoctorPortalView({ setPage, uploads = [], onUpdateRecord
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-white font-extrabold text-base leading-tight">Hola Clinical Portal</span>
+                <span className="text-white font-extrabold text-base leading-tight">OnePatient Clinical Portal</span>
                 <span className="bg-teal-900 border border-teal-400/40 text-teal-300 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
                   Verified Doctor View
                 </span>
@@ -92,6 +131,13 @@ export default function DoctorPortalView({ setPage, uploads = [], onUpdateRecord
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setViewMode('medications')}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-teal-400 hover:bg-teal-300 text-teal-950 font-bold text-xs shadow-sm transition-all"
+            >
+              <Icon name="medication" className="text-base" />
+              <span>Current medication of Patient</span>
+            </button>
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-900/60 border border-teal-500/30 text-teal-300 text-xs font-semibold">
               <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
               <span>In-Person Consent Active</span>
@@ -114,7 +160,7 @@ export default function DoctorPortalView({ setPage, uploads = [], onUpdateRecord
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 pt-24 pb-16">
         
         {/* Patient Identity Banner */}
-        <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-100 mb-8">
+        <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-100 mb-8 flex flex-col md:flex-row md:items-center justify-between gap-5">
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 rounded-2xl bg-teal-50 text-teal-900 flex items-center justify-center font-black text-2xl shadow-inner border border-teal-100 flex-shrink-0">
               <Icon name="person" className="text-3xl text-teal-700" />
@@ -134,6 +180,14 @@ export default function DoctorPortalView({ setPage, uploads = [], onUpdateRecord
               </p>
             </div>
           </div>
+
+          <button
+            onClick={() => setViewMode('medications')}
+            className="inline-flex items-center justify-center gap-2 teal-gradient-btn text-white font-bold px-6 py-3.5 rounded-2xl text-sm shadow-md hover:scale-105 transition-all flex-shrink-0"
+          >
+            <Icon name="medication" className="text-xl" />
+            <span>Current medication of Patient</span>
+          </button>
         </div>
 
         {/* ── CATEGORY DROPDOWN SELECTOR (NO SEPARATE SEARCH OR SUBMIT BUTTON) ── */}

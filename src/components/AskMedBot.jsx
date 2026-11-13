@@ -22,23 +22,29 @@ function Icon({ name, className = '' }) {
 function renderTextWithCitations(rawText, lineContext, onOpenCitation) {
   if (!rawText) return null;
 
-  const citationSplitRegex = /(\((?:Page\s*\d+[,\s]*)?Source:\s*(?:Document\s*)?[a-zA-Z0-9_\-]+[^)]*\))/gi;
-  const citationMatchRegex = /^\((?:Page\s*(\d+)[,\s]*)?Source:\s*(?:Document\s*)?([a-zA-Z0-9_\-]+)/i;
+  // Split on all forms of bracketed or parenthesized document references or inline Document upload- IDs
+  const citationSplitRegex = /(\[[^\]]*(?:upload-\d+|Document|Doc)[^\]]*\]|\([^)]*(?:upload-\d+|Document|Doc)[^)]*\)|Document\s+upload-\d+(?:,\s*Page\s*\d+)?)/gi;
 
   const segments = rawText.split(citationSplitRegex);
 
   return segments.map((segment, segIdx) => {
-    const match = segment.match(citationMatchRegex);
-    if (match) {
-      const pageNumber = match[1] || '1';
-      const docId = match[2];
+    // Check if this segment contains a document reference
+    const uploadMatch = segment.match(/upload-\d+/i);
+    const docWordMatch = segment.match(/(?:Document|Doc)\s*:?\s*([a-zA-Z0-9_\-]+)/i);
+    const docId = uploadMatch ? uploadMatch[0] : (docWordMatch ? docWordMatch[1] : null);
 
-      // Extract clean finding snippet from line context
+    if (docId && docId.toLowerCase() !== 'document' && docId.toLowerCase() !== 'doc') {
+      const pageMatch = segment.match(/Page\s*(\d+)/i);
+      const pageNumber = pageMatch ? pageMatch[1] : '1';
+
+      // Clean snippet for underline highlight in modal
       const cleanSnippet = (lineContext || '')
         .replace(/^[\*\-•\d\.]+\s*/, '')
-        .replace(/\((?:Page\s*\d+[,\s]*)?Source:[^)]*\)/gi, '')
+        .replace(/(\[[^\]]*\]|\([^)]*\))/g, '')
         .replace(/\*\*/g, '')
         .trim();
+
+      const displayLabel = segment.replace(/^[\[\(]|[\]\)]$/g, '').trim();
 
       return (
         <button
@@ -54,13 +60,13 @@ function renderTextWithCitations(rawText, lineContext, onOpenCitation) {
               });
             }
           }}
-          className="text-blue-600 hover:text-blue-800 underline decoration-blue-500 font-semibold inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded hover:bg-blue-50 transition-colors cursor-pointer text-xs"
+          className="text-blue-600 hover:text-blue-800 underline decoration-blue-500 font-bold inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded hover:bg-blue-50 transition-colors cursor-pointer text-xs"
           title={`Click to open source document (${docId})`}
         >
           <span className="material-symbols-outlined text-[13px] text-blue-600 select-none">
             visibility
           </span>
-          <span>{segment}</span>
+          <span>[{displayLabel}]</span>
         </button>
       );
     }
@@ -269,9 +275,9 @@ export default function AskMedBot({
         id: 'welcome-1',
         role: 'assistant',
         status: 'grounded',
-        engine: 'Qwen 2.5 7B AI Agent',
+        engine: 'AI Agent',
         text:
-          'Hi! I am **MedBot**, your clinical AI assistant powered by **Qwen 2.5 7B Instruct** 😊\n\nI analyze your uploaded medical reports, doctor instructions, and prescribed medications in plain English.\n\nAsk me anything about your prescriptions or health routine!',
+          'Hi! I am **MedBot**, your clinical AI assistant powered by **Gemini RAG (Retrieval-Augmented Generation)** 😊\n\nI answer questions strictly grounded in your actual uploaded medical documents and prescriptions in plain English.\n\nAsk me anything about your diagnosed problems, doctor findings, or prescribed medicines!',
         citedMedications: [],
       },
     ];
@@ -321,9 +327,9 @@ export default function AskMedBot({
         id: 'welcome-' + Date.now(),
         role: 'assistant',
         status: 'grounded',
-        engine: `Qwen 2.5 7B AI Agent (${aiModel.split('/').pop()})`,
+        engine: 'AI Agent',
         text:
-          'Chat reset! I am **MedBot** (Model: **Qwen 2.5 7B Instruct**) 😊\n\nI analyze your uploaded medical reports, doctor instructions, and prescribed medications in plain English.\n\nAsk me anything about your doctor names, diagnosed problems, or prescribed medicines!',
+          'Chat reset! I am **MedBot**, your clinical AI assistant powered by **Gemini RAG (Retrieval-Augmented Generation)** 😊\n\nI answer questions strictly grounded in your actual uploaded medical documents and prescriptions in plain English.\n\nAsk me anything about your doctor names, diagnosed problems, or prescribed medicines!',
       },
     ]);
   };
@@ -347,6 +353,7 @@ export default function AskMedBot({
         question: query,
         activePrescription,
         allPrescriptions: uploads,
+        currentUser,
         analysis,
         chatHistory: messages,
         reminders,
@@ -402,11 +409,12 @@ export default function AskMedBot({
     );
   };
 
-  const navItems = ['Home', 'My Uploads', 'Access QR', 'Ask MedBot', 'About Us'];
+  const navItems = ['Home', 'My Uploads', 'Current Medication', 'Access QR', 'Ask MedBot', 'About Us'];
 
   const handleNavClick = (link) => {
     if (link === 'Home') setPage('landing');
     else if (link === 'My Uploads') setPage('my-uploads');
+    else if (link === 'Current Medication') setPage('current-medication');
     else if (link === 'Access QR') setPage('access-qr');
     else if (link === 'Ask MedBot') setPage('medbot');
     else if (link === 'About Us') setPage('about-us');
@@ -430,7 +438,7 @@ export default function AskMedBot({
             >
               <span className="text-white font-black text-sm">Dr.</span>
             </button>
-            <div className="text-white font-bold text-lg leading-tight">Hola</div>
+            <div className="text-white font-bold text-lg leading-tight">OnePatient</div>
           </div>
 
           {/* Desktop Navigation */}
@@ -572,46 +580,8 @@ export default function AskMedBot({
                           AI
                         </span>
                         <span className="text-[11px] font-extrabold text-teal-900 tracking-tight">
-                          {msg.engine || 'Qwen 2.5 7B AI Agent'}
+                          AI Agent
                         </span>
-                        {msg.toolsUsed?.length > 0 && (
-                          <span className="text-[10px] font-semibold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200 flex items-center gap-1 flex-wrap">
-                            <span>SQL:</span>
-                            {msg.toolsUsed.map((tool, tIdx) => {
-                              const match = tool.match(/(?:Document\s+)?([a-zA-Z0-9_\-]+)/i);
-                              const isDoc =
-                                tool.toLowerCase().includes('document') || tool.startsWith('upload-');
-                              if (isDoc && match) {
-                                const docId = match[1];
-                                return (
-                                  <button
-                                    key={tIdx}
-                                    type="button"
-                                    onClick={() =>
-                                      setActiveCitation({
-                                        docId,
-                                        pageNumber: '1',
-                                        snippet: `Prescription Record (${docId})`,
-                                        citationText: tool,
-                                      })
-                                    }
-                                    className="text-blue-600 underline font-bold hover:text-blue-800 cursor-pointer"
-                                    title={`Click to view source document ${docId}`}
-                                  >
-                                    {tool}
-                                    {tIdx < msg.toolsUsed.length - 1 ? ', ' : ''}
-                                  </button>
-                                );
-                              }
-                              return (
-                                <span key={tIdx}>
-                                  {tool}
-                                  {tIdx < msg.toolsUsed.length - 1 ? ', ' : ''}
-                                </span>
-                              );
-                            })}
-                          </span>
-                        )}
                       </div>
 
                       {msg.citedMedications?.length > 0 && (

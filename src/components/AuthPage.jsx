@@ -37,7 +37,6 @@ export default function AuthPage({ onLoginSuccess, onAuthSuccess, setPage }) {
   const notifySuccess = onLoginSuccess || onAuthSuccess || (() => {});
   const [isSignUp, setIsSignUp] = useState(false);
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
   const [permanentId, setPermanentId] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -53,7 +52,6 @@ export default function AuthPage({ onLoginSuccess, onAuthSuccess, setPage }) {
     setIsLoading(true);
 
     try {
-      // Attempt Supabase session sync if possible
       localStorage.setItem('onepatient_current_user', JSON.stringify(account));
       setTimeout(() => {
         notifySuccess(account);
@@ -69,11 +67,10 @@ export default function AuthPage({ onLoginSuccess, onAuthSuccess, setPage }) {
     setError('');
     setSuccess('');
 
-    const trimmedEmail = email.trim().toLowerCase();
-    const trimmedId = permanentId.trim() || trimmedEmail.split('@')[0].toUpperCase();
+    const trimmedId = permanentId.trim();
 
-    if (!trimmedEmail) {
-      setError('Please enter your email address.');
+    if (!trimmedId) {
+      setError('Please enter your Permanent Health ID.');
       return;
     }
 
@@ -87,7 +84,7 @@ export default function AuthPage({ onLoginSuccess, onAuthSuccess, setPage }) {
     if (isSignUp) {
       const trimmedName = name.trim();
       if (!trimmedName) {
-        setError('Please enter your full name.');
+        setError('Please enter your full legal name.');
         setIsLoading(false);
         return;
       }
@@ -104,104 +101,123 @@ export default function AuthPage({ onLoginSuccess, onAuthSuccess, setPage }) {
         return;
       }
 
+      const userId = 'usr_' + Date.now();
+      const userRecord = {
+        id: userId,
+        name: trimmedName,
+        permanentId: trimmedId,
+        password: password,
+        createdAt: new Date().toISOString(),
+      };
+
+      // Save user to onepatient_users in localStorage
       try {
-        // Real Supabase Authentication Sign Up
-        const { data: authData, error: authErr } = await supabase.auth.signUp({
-          email: trimmedEmail,
-          password: password,
-          options: {
-            data: {
-              name: trimmedName,
-              permanent_id: trimmedId,
-            },
-          },
-        });
+        const stored = localStorage.getItem('onepatient_users');
+        const users = stored ? JSON.parse(stored) : [];
+        const filtered = users.filter(
+          (u) => (u.permanentId || '').toLowerCase() !== trimmedId.toLowerCase()
+        );
+        filtered.push(userRecord);
+        localStorage.setItem('onepatient_users', JSON.stringify(filtered));
+      } catch (err) {
+        console.warn('Error saving user:', err);
+      }
 
-        // Construct user session object
-        const userId = authData?.user?.id || 'usr_' + Date.now();
-        const userObj = {
-          id: userId,
-          name: trimmedName,
-          email: trimmedEmail,
-          permanentId: trimmedId,
-        };
+      const userSession = {
+        id: userId,
+        name: trimmedName,
+        permanentId: trimmedId,
+        email: `${trimmedId.toLowerCase()}@onepatient.app`,
+      };
+      localStorage.setItem('onepatient_current_user', JSON.stringify(userSession));
 
-        // Upsert to profiles table in Supabase
+      // Attempt Supabase profiles upsert
+      try {
         await supabase.from('profiles').upsert([
           {
             id: userId,
             name: trimmedName,
-            email: trimmedEmail,
             permanent_id: trimmedId,
           },
-        ]).catch(() => {});
+        ]);
+      } catch (_) {}
 
-        setSuccess('Account registered successfully! Logging you in...');
-        setTimeout(() => {
-          notifySuccess(userObj);
-        }, 700);
-      } catch (err) {
-        console.warn('Supabase auth signup warning, using verified local session:', err);
-        const fallbackUser = {
-          id: 'usr_' + Date.now(),
-          name: trimmedName,
-          email: trimmedEmail,
-          permanentId: trimmedId,
-        };
-        notifySuccess(fallbackUser);
-      } finally {
+      setSuccess('Account registered successfully! Logging you in...');
+      setTimeout(() => {
+        notifySuccess(userSession);
         setIsLoading(false);
-      }
+      }, 600);
     } else {
-      // Sign In Flow
+      // Sign In Flow (using Permanent Health ID & Password only)
       try {
-        // Attempt Supabase sign in
-        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
-          email: trimmedEmail,
-          password: password,
-        });
+        // 1. Check registered users in localStorage
+        let savedUsers = [];
+        try {
+          const stored = localStorage.getItem('onepatient_users');
+          savedUsers = stored ? JSON.parse(stored) : [];
+        } catch (_) {}
 
-        let userObj = null;
-        if (!signInErr && signInData?.user) {
-          const u = signInData.user;
-          userObj = {
-            id: u.id,
-            email: u.email,
-            name: u.user_metadata?.name || u.email.split('@')[0],
-            permanentId: u.user_metadata?.permanent_id || 'GLP-' + u.id.substring(0, 6).toUpperCase(),
-          };
-        } else {
-          // Check test accounts or local stored users
-          const matchedTest = TEST_ACCOUNTS.find(
-            (t) => t.email.toLowerCase() === trimmedEmail || t.permanentId.toLowerCase() === trimmedEmail
-          );
-          if (matchedTest) {
-            userObj = matchedTest;
-          } else {
-            // General user object fallback
-            userObj = {
-              id: 'usr_' + (trimmedEmail.replace(/[^a-z0-9]/g, '').substring(0, 16) || Date.now()),
-              email: trimmedEmail,
-              name: trimmedEmail.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-              permanentId: trimmedId,
-            };
+        const matchedSaved = savedUsers.find(
+          (u) => (u.permanentId || '').toLowerCase() === trimmedId.toLowerCase()
+        );
+
+        if (matchedSaved) {
+          if (matchedSaved.password && matchedSaved.password !== password) {
+            setError('Incorrect password. Please try again.');
+            setIsLoading(false);
+            return;
           }
+          const userSession = {
+            id: matchedSaved.id,
+            name: matchedSaved.name,
+            permanentId: matchedSaved.permanentId,
+            email: `${matchedSaved.permanentId.toLowerCase()}@onepatient.app`,
+          };
+          localStorage.setItem('onepatient_current_user', JSON.stringify(userSession));
+          setSuccess('Welcome back! Logging you in...');
+          setTimeout(() => {
+            notifySuccess(userSession);
+            setIsLoading(false);
+          }, 400);
+          return;
         }
 
+        // 2. Check pre-configured test personas
+        const matchedTest = TEST_ACCOUNTS.find(
+          (t) => (t.permanentId || '').toLowerCase() === trimmedId.toLowerCase()
+        );
+        if (matchedTest) {
+          localStorage.setItem('onepatient_current_user', JSON.stringify(matchedTest));
+          setSuccess(`Welcome back, ${matchedTest.name}! Logging you in...`);
+          setTimeout(() => {
+            notifySuccess(matchedTest);
+            setIsLoading(false);
+          }, 400);
+          return;
+        }
+
+        // 3. Fallback: Authenticate as user with this Permanent Health ID
+        const fallbackSession = {
+          id: 'usr_' + trimmedId.toLowerCase(),
+          name: trimmedId,
+          permanentId: trimmedId,
+          email: `${trimmedId.toLowerCase()}@onepatient.app`,
+        };
+        localStorage.setItem('onepatient_current_user', JSON.stringify(fallbackSession));
         setSuccess('Welcome back! Logging you in...');
         setTimeout(() => {
-          notifySuccess(userObj);
-        }, 500);
+          notifySuccess(fallbackSession);
+          setIsLoading(false);
+        }, 400);
       } catch (err) {
-        console.warn('Sign-in check:', err);
-        const matched = TEST_ACCOUNTS.find((t) => t.email.toLowerCase() === trimmedEmail) || {
-          id: 'usr_' + Date.now(),
-          email: trimmedEmail,
-          name: trimmedEmail.split('@')[0],
+        console.warn('Sign-in check notice:', err);
+        const fallbackSession = {
+          id: 'usr_' + trimmedId.toLowerCase(),
+          name: trimmedId,
           permanentId: trimmedId,
+          email: `${trimmedId.toLowerCase()}@onepatient.app`,
         };
-        notifySuccess(matched);
-      } finally {
+        notifySuccess(fallbackSession);
         setIsLoading(false);
       }
     }
@@ -220,7 +236,7 @@ export default function AuthPage({ onLoginSuccess, onAuthSuccess, setPage }) {
           <div className="w-13 h-13 rounded-full teal-gradient-btn flex items-center justify-center shadow-orb-glow mb-2">
             <span className="text-white font-black text-xl">Dr.</span>
           </div>
-          <h1 className="text-2xl font-black text-[#00241f] tracking-tight">Hola</h1>
+          <h1 className="text-2xl font-black text-[#00241f] tracking-tight">OnePatient</h1>
           <p className="text-xs text-teal-700 font-semibold uppercase tracking-wider mt-0.5">
             Federated Health Record Ledger
           </p>
@@ -262,50 +278,29 @@ export default function AuthPage({ onLoginSuccess, onAuthSuccess, setPage }) {
                   placeholder="e.g. Eleanor Vance"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all font-medium"
                 />
               </div>
             </div>
           )}
 
-          {/* Email Input */}
+          {/* Permanent Health ID Input (Sign Up & Login) */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Email Address</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">Permanent Health ID</label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-400">
-                <Icon name="alternate_email" className="text-lg" />
+                <Icon name="fingerprint" className="text-lg" />
               </span>
               <input
-                type="email"
+                type="text"
                 required
-                placeholder="name@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all font-mono"
+                placeholder="e.g. NNM24cc059"
+                value={permanentId}
+                onChange={(e) => setPermanentId(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all font-mono font-medium"
               />
             </div>
           </div>
-
-          {/* Optional Permanent ID */}
-          {isSignUp && (
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Permanent Health ID <span className="font-normal text-slate-400">(Optional / Auto-generated)</span>
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-400">
-                  <Icon name="fingerprint" className="text-lg" />
-                </span>
-                <input
-                  type="text"
-                  placeholder="e.g. GLP-9041-A"
-                  value={permanentId}
-                  onChange={(e) => setPermanentId(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all font-mono"
-                />
-              </div>
-            </div>
-          )}
 
           {/* Password Input */}
           <div>
@@ -320,7 +315,7 @@ export default function AuthPage({ onLoginSuccess, onAuthSuccess, setPage }) {
                 placeholder="Enter password (min 6 chars)"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-10 py-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-10 py-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all font-medium"
               />
               <button
                 type="button"
@@ -346,7 +341,7 @@ export default function AuthPage({ onLoginSuccess, onAuthSuccess, setPage }) {
                   placeholder="Re-enter password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all font-medium"
                 />
               </div>
             </div>

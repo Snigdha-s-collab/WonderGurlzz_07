@@ -1154,25 +1154,24 @@ Both conditions are actively being treated with your daily prescription regimen.
       .map((i) => `• **${i.topic} (${i.doctor}):** ${i.instruction}`)
       .join('\n');
 
+    const doctorNames = Array.from(new Set(allPrescriptions.map((p) => p.doctorName || p.doctor_name).filter(Boolean))).join(', ') || 'Your Physician';
     return {
       status: 'grounded',
       urgent: false,
-      reply: `### 📝 Doctor Instructions & Dietary Guidelines from Your Records:
+      reply: `### 📝 Doctor Instructions & Clinical Advice from Your Records:
 
-Here is the exact clinical advice documented by your physicians (**Dr. Rajiv Mehta** & **Dr. Sarah Jenkins**):
+Here is the exact clinical guidance documented in your uploaded records (**${doctorNames}**):
 
-${instructionLines}
+${instructionLines || '• Take all prescribed medicines according to the schedule specified on your consultation sheet.'}
 
-* **Coffee / Milk:** Moderate coffee, tea, or milk with breakfast is completely fine. Avoid sugary syrups.
-* **Grapefruit Alert:** Keep avoiding grapefruits or grapefruit juice while on Atorvastatin.
-* **Meals:** Always take your Metformin right after breakfast to keep your tummy comfortable.`,
-      citedMedications: ['Metformin', 'Atorvastatin'],
+* **General Rule:** Always follow the exact dosage and review dates specified on your prescription.`,
+      citedMedications: meds.map((m) => m.name),
       suggestedFollowUps: [
-        'Can I drink coffee with Metformin?',
-        'Why take Atorvastatin at bedtime?',
+        'What medicines did the doctor prescribe?',
+        'When should I take my medications?',
         'What should I do if I miss a dose?',
       ],
-      engine: 'Qwen 2.5 7B AI Agent • SQL Database Verified',
+      engine: 'OnePatient Verified Records Engine',
       toolsUsed: ['get_doctor_instructions', 'get_medications'],
     };
   }
@@ -1194,27 +1193,27 @@ ${instructionLines}
     const medLines = meds
       .map(
         (m) =>
-          `• **${m.name} ${m.dosage}:** ${m.frequency} (${m.timeScheduled})\n  - **Target:** ${m.indication}\n  - **Started:** ${m.startDate} | **Course/Duration:** ${m.duration}\n  - **Stop/Review Date:** ${m.changeOrStopDate}\n  - **Prescribed by:** ${m.prescriber}`
+          `• **${m.name} ${m.dosage}:** ${m.frequency || 'As directed'} (${m.timeScheduled || 'Standard timing'})\n  - **Target:** ${m.indication || 'Prescribed therapy'}\n  - **Duration:** ${m.duration || 'Follow consultation'}\n  - **Prescribed by:** ${m.prescriber || 'Consulting Doctor'}`
       )
       .join('\n\n');
 
     return {
       status: 'grounded',
       urgent: false,
-      reply: `### 💊 Your Prescribed Medications Linked to Your Report:
+      reply: `### 💊 Your Prescribed Medications Linked to Your Records:
 
-Here is your verified medication list, including why each was prescribed and course dates:
+Here is your verified medication list extracted directly from your uploaded consultations:
 
-${medLines}
+${medLines || 'No active prescribed medications found in your uploaded records.'}
 
-**Key Daily Rule:** Metformin after breakfast for glucose control; Atorvastatin before sleep for overnight cholesterol reduction. You're doing great!`,
+*Always consult your physician before altering any prescribed dosage.*`,
       citedMedications: meds.map((m) => m.name),
       suggestedFollowUps: [
-        'Explain my report and medicines',
-        'Can I take my medicines with coffee?',
+        'What medicines did the doctor prescribe?',
+        'When should I take my medications?',
         'What should I do if I miss a dose?',
       ],
-      engine: 'Qwen 2.5 7B AI Agent • SQL Database Verified',
+      engine: 'OnePatient Verified Records Engine',
       toolsUsed: ['get_medications', 'correlate_report_with_medications'],
     };
   }
@@ -1416,6 +1415,7 @@ export async function askMedBotAgent({
   question,
   activePrescription,
   allPrescriptions = [],
+  currentUser = null,
   analysis,
   chatHistory = [],
   reminders = [],
@@ -1423,7 +1423,13 @@ export async function askMedBotAgent({
 }) {
   // 1. Primary RAG Vector Ingestion & Grounded Retrieval via Backend
   try {
-    const patientId = activePrescription?.patientId || allPrescriptions[0]?.patientId || 'GLP-9041-K7-VERIFIED';
+    const patientId =
+      currentUser?.permanentId ||
+      currentUser?.id ||
+      activePrescription?.patientId ||
+      allPrescriptions[0]?.patientId ||
+      'NNM24cc059';
+
     const ragRes = await fetch('http://127.0.0.1:8000/api/medbot/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1439,10 +1445,10 @@ export async function askMedBotAgent({
           status: ragData.rejected_by_guardrail ? 'guardrail' : 'grounded',
           urgent: false,
           reply: ragData.answer,
-          engine: 'Gemini RAG Vector Agent (Verified Records)',
+          engine: 'AI Agent',
           citedMedications: [],
           suggestedFollowUps: ragData.rejected_by_guardrail
-            ? []
+            ? ['What medicines did the doctor prescribe?', 'What were my clinical findings?']
             : ['What medicines did the doctor prescribe?', 'When should I take my medications?'],
           toolsUsed: ragData.sources && ragData.sources.length > 0
             ? ragData.sources.map((s) => s.source)
@@ -1451,7 +1457,7 @@ export async function askMedBotAgent({
       }
     }
   } catch (ragErr) {
-    // If backend is offline or loading, proceed safely to local correlation
+    // If backend is offline or loading, proceed safely to database correlation
     console.debug('RAG backend notice:', ragErr.message);
   }
 

@@ -81,6 +81,7 @@ REQUIRED OUTPUT JSON SCHEMA:
     "date_of_consultation": "Date on prescription or null",
     "patient_name": "Patient name or null",
     "patient_age_or_gender": "Age/gender or null",
+    "patient_weight": "Patient weight if mentioned or null",
     "diagnosis_or_symptoms": ["Visible symptoms or clinical diagnosis noted"],
     "medicines": [
       {
@@ -182,6 +183,20 @@ def validate_and_format_image(raw_image_input: str) -> Tuple[str, str, int, int]
         max_mb = MAX_IMAGE_SIZE_BYTES // (1024 * 1024)
         actual_mb = size_bytes / (1024 * 1024)
         raise ValueError(f"Image size ({actual_mb:.1f} MB) exceeds maximum allowed limit ({max_mb} MB).")
+
+    # If payload is a PDF document, render first page to high-res JPEG image
+    if image_bytes.startswith(b"%PDF"):
+        try:
+            import pypdfium2 as pdfium
+            pdf = pdfium.PdfDocument(image_bytes)
+            if len(pdf) > 0:
+                pil_img = pdf[0].render(scale=2.0).to_pil()
+                buf = io.BytesIO()
+                pil_img.save(buf, format="JPEG", quality=92)
+                image_bytes = buf.getvalue()
+                b64_payload = base64.b64encode(image_bytes).decode("utf-8")
+        except Exception as pdf_err:
+            logger.warning(f"Failed to render PDF page via pypdfium2: {pdf_err}")
 
     # 3. Image format and dimensions validation via Pillow
     try:
@@ -549,6 +564,12 @@ async def analyze_medical_document(
         parsed_dict["processed_at"] = datetime.now(timezone.utc).isoformat()
         parsed_dict["model_name"] = INFERENCE_MODEL
         parsed_dict["needs_human_verification"] = True
+
+        # Sanitize document_type if prescription data exists
+        if parsed_dict.get("prescription_data"):
+            px = parsed_dict["prescription_data"]
+            if px.get("medicines") or px.get("doctor_name"):
+                parsed_dict["document_type"] = "prescription"
 
         # Validate against strict Pydantic schema
         validated_response = MedicalOCRResponse.model_validate(parsed_dict)

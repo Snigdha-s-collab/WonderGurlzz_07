@@ -153,6 +153,7 @@ export const services = [
 export const navLinks = [
   'Home',
   'My Uploads',
+  'Current Medication',
   'Access QR',
   'Ask MedBot',
   'About Us',

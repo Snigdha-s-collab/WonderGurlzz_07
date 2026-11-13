@@ -19,7 +19,13 @@ const PROBLEM_CATEGORIES = [
   'Other',
 ];
 
-export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentUser }) {
+export default function UploadModal({
+  isOpen,
+  onClose,
+  onUploadSuccess,
+  currentUser,
+  sharingGroups = [],
+}) {
   const [title, setTitle] = useState('');
   const [doctorName, setDoctorName] = useState('');
   const [prescriptionText, setPrescriptionText] = useState('');
@@ -35,24 +41,69 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
   const [statusText, setStatusText] = useState('');
   const [error, setError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [previewingFile, setPreviewingFile] = useState(null);
+  const [uploadSuccessRecord, setUploadSuccessRecord] = useState(null);
   const fileInputRef = useRef(null);
+
+  const handleOpenFilePreview = (file) => {
+    try {
+      const url = URL.createObjectURL(file);
+      const isPdf =
+        file.type === 'application/pdf' ||
+        (typeof file.name === 'string' && file.name.toLowerCase().endsWith('.pdf'));
+      const isImage =
+        file.type?.startsWith('image/') ||
+        (typeof file.name === 'string' && !!file.name.match(/\.(jpg|jpeg|png|webp|gif)$/i));
+
+      setPreviewingFile({ file, url, name: file.name, isPdf, isImage });
+    } catch (e) {
+      console.warn('Could not create preview URL:', e);
+    }
+  };
+
+  const handleCloseFilePreview = () => {
+    if (previewingFile?.url) {
+      try {
+        URL.revokeObjectURL(previewingFile.url);
+      } catch (_) {}
+    }
+    setPreviewingFile(null);
+  };
 
   // Prevent browser window from navigating away when dropping files anywhere on page
   useEffect(() => {
-    const preventWindowDrop = (e) => {
+    const handleGlobalDrag = (e) => {
       e.preventDefault();
+      e.stopPropagation();
     };
-    window.addEventListener('dragover', preventWindowDrop);
-    window.addEventListener('drop', preventWindowDrop);
+    const handleGlobalDrop = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const files = Array.from(e.dataTransfer?.files || []);
+      if (files.length > 0) {
+        addFiles(files);
+      }
+    };
+    window.addEventListener('dragover', handleGlobalDrag);
+    window.addEventListener('dragenter', handleGlobalDrag);
+    window.addEventListener('dragleave', handleGlobalDrag);
+    window.addEventListener('drop', handleGlobalDrop);
+    document.addEventListener('dragover', handleGlobalDrag);
+    document.addEventListener('drop', handleGlobalDrop);
+
     return () => {
-      window.removeEventListener('dragover', preventWindowDrop);
-      window.removeEventListener('drop', preventWindowDrop);
+      window.removeEventListener('dragover', handleGlobalDrag);
+      window.removeEventListener('dragenter', handleGlobalDrag);
+      window.removeEventListener('dragleave', handleGlobalDrag);
+      window.removeEventListener('drop', handleGlobalDrop);
+      document.removeEventListener('dragover', handleGlobalDrag);
+      document.removeEventListener('drop', handleGlobalDrop);
     };
   }, []);
 
   // Auto-select the first available sharing group if available
   useEffect(() => {
-    if (sharingGroups && sharingGroups.length > 0 && !selectedGroupId) {
+    if (Array.isArray(sharingGroups) && sharingGroups.length > 0 && !selectedGroupId) {
       setSelectedGroupId(sharingGroups[0].id);
     }
   }, [sharingGroups, selectedGroupId]);
@@ -81,9 +132,8 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
-    addFiles(files);
-    if (e.target) {
-      e.target.value = '';
+    if (files.length > 0) {
+      addFiles(files);
     }
   };
 
@@ -108,7 +158,13 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
   };
 
   const handleRemoveFile = (index) => {
-    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+    setSelectedFiles((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      if (next.length === 0 && fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return next;
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -172,13 +228,15 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
             dataUrl = await readFileAsDataUrl(f);
           }
 
-          // Upload to private Supabase Storage 'medical-documents' bucket
+          // Upload to private Supabase Storage 'medical-documents' bucket (if available)
           let storagePath = null;
           try {
-            storagePath = await uploadMedicalFileToStorage(f, {
-              userId: currentUser?.id || currentUser?.permanentId || 'user',
-              recordId: newRecordId,
-            });
+            if (typeof uploadMedicalFileToStorage === 'function') {
+              storagePath = await uploadMedicalFileToStorage(f, {
+                userId: currentUser?.id || currentUser?.permanentId || 'user',
+                recordId: newRecordId,
+              });
+            }
           } catch (storageErr) {
             console.warn('Storage upload notice:', storageErr);
           }
@@ -239,13 +297,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
       onUploadSuccess(newRecord);
       setIsSubmitting(false);
       setStatusText('');
-      setTitle('');
-      setDoctorName('');
-      setPrescriptionText('');
-      setCategory('');
-      setSelectedFiles([]);
-      setIsShared(false);
-      onClose();
+      setUploadSuccessRecord(newRecord);
     } catch (err) {
       console.error(err);
       setIsSubmitting(false);
@@ -254,8 +306,39 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
     }
   };
 
+  const handleResetForm = () => {
+    setTitle('');
+    setDoctorName('');
+    setPrescriptionText('');
+    setCategory('');
+    setSelectedFiles([]);
+    setIsShared(false);
+    setError('');
+    setUploadSuccessRecord(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleCloseAll = () => {
+    handleResetForm();
+    onClose();
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn"
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const files = Array.from(e.dataTransfer?.files || []);
+        if (files.length > 0) addFiles(files);
+      }}
+    >
       <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 max-h-[92vh] flex flex-col">
         {/* Header */}
         <div className="bg-[#0b3b34] text-white px-6 py-4 flex items-center justify-between">
@@ -269,15 +352,55 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleCloseAll}
             className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/80 hover:text-white transition-colors"
           >
             <Icon name="close" className="text-lg" />
           </button>
         </div>
 
-        {/* Content Form */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 text-[#131b2e]">
+        {/* Success confirmation view inside the popup */}
+        {uploadSuccessRecord ? (
+          <div className="p-8 text-center space-y-4 animate-fadeIn">
+            <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-sm">
+              <Icon name="check_circle" className="text-4xl" />
+            </div>
+            <div>
+              <h3 className="text-lg font-extrabold text-slate-900">
+                Document Uploaded Successfully!
+              </h3>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                <strong className="text-slate-800">{uploadSuccessRecord.title}</strong> has been securely stored and synced in real time.
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-4">
+              <button
+                type="button"
+                onClick={handleResetForm}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-full text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+              >
+                Upload Another Document
+              </button>
+              <button
+                type="button"
+                onClick={handleCloseAll}
+                className="w-full sm:w-auto teal-gradient-btn text-white font-bold px-6 py-2.5 rounded-full text-xs shadow-pill-glow transition-all"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Content Form */
+          <form
+            onSubmit={handleSubmit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+                e.preventDefault();
+              }
+            }}
+            className="p-6 overflow-y-auto space-y-4 text-[#131b2e]"
+          >
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl p-3 flex items-start gap-2">
               <Icon name="error" className="text-base text-red-500 flex-shrink-0" />
@@ -451,8 +574,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
               onDragEnter={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={`flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-5 cursor-pointer transition-all group ${
+              className={`relative flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-5 cursor-pointer transition-all group overflow-hidden ${
                 isDragging
                   ? 'border-teal-500 bg-teal-100/60 ring-2 ring-teal-400'
                   : 'border-teal-300 hover:border-teal-500 bg-teal-50/40 hover:bg-teal-50/70'
@@ -460,20 +582,22 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
             >
               <input
                 ref={fileInputRef}
+                id="health-record-file-upload"
                 type="file"
                 multiple
                 accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.txt,.md"
                 onChange={handleFileChange}
-                onClick={(e) => e.stopPropagation()}
-                className="hidden"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                tabIndex={0}
+                aria-label="Upload document"
               />
-              <div className="w-12 h-12 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
+              <div className="w-12 h-12 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform pointer-events-none">
                 <Icon name="cloud_upload" className="text-2xl" />
               </div>
-              <p className="text-xs font-bold text-slate-800">
+              <p className="text-xs font-bold text-slate-800 pointer-events-none">
                 Click to browse or drag files here
               </p>
-              <p className="text-[11px] text-slate-500 mt-0.5">
+              <p className="text-[11px] text-slate-500 mt-0.5 pointer-events-none">
                 PDF, JPG, PNG or DOCX (Stored in Private Storage)
               </p>
             </div>
@@ -488,23 +612,40 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
                   {selectedFiles.map((file, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
+                      className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs hover:border-teal-300 transition-colors"
                     >
-                      <div className="flex items-center gap-2 truncate">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenFilePreview(file)}
+                        className="flex items-center gap-2 truncate text-left hover:text-teal-700 group transition-colors flex-1 mr-2"
+                        title="Click to preview this document"
+                      >
                         <Icon name="description" className="text-teal-600 text-base flex-shrink-0" />
-                        <span className="font-medium text-slate-800 truncate">{file.name}</span>
+                        <span className="font-semibold text-slate-800 group-hover:text-teal-700 truncate">{file.name}</span>
                         <span className="text-[10px] text-slate-400 flex-shrink-0">
                           ({(file.size / 1024).toFixed(1)} KB)
                         </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveFile(idx)}
-                        className="text-red-500 hover:text-red-700 p-1"
-                        title="Remove file"
-                      >
-                        <Icon name="delete" className="text-base" />
                       </button>
+
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenFilePreview(file)}
+                          className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold text-[11px] flex items-center gap-1 transition-colors border border-teal-200"
+                          title="Open document preview"
+                        >
+                          <Icon name="visibility" className="text-sm" />
+                          <span>Open</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFile(idx)}
+                          className="text-red-500 hover:text-red-700 p-1"
+                          title="Remove file"
+                        >
+                          <Icon name="delete" className="text-base" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -516,7 +657,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleCloseAll}
               disabled={isSubmitting}
               className="px-5 py-2.5 rounded-full text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
             >
@@ -541,7 +682,73 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
             </button>
           </div>
         </form>
+        )}
       </div>
+
+      {/* ── ENLARGED IN-MODAL FILE PREVIEW (RETURNS DIRECTLY TO UPLOAD POPUP) ── */}
+      {previewingFile && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/85 backdrop-blur-md flex flex-col items-center justify-between p-4 sm:p-6 animate-fadeIn"
+          onClick={handleCloseFilePreview}
+        >
+          <div
+            className="w-full max-w-4xl flex items-center justify-between mb-3 z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={handleCloseFilePreview}
+              className="px-4 py-2 rounded-full bg-teal-400 hover:bg-teal-300 text-teal-950 font-black text-xs shadow-lg flex items-center gap-2 transition-all border border-teal-200"
+              title="Return to Upload Popup"
+            >
+              <Icon name="arrow_back" className="text-base" />
+              <span>← Return to Upload Popup</span>
+            </button>
+
+            <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/60 border border-white/20 text-white text-xs font-semibold">
+              <Icon name="description" className="text-sm text-teal-300" />
+              <span className="truncate max-w-[200px] sm:max-w-xs">{previewingFile.name}</span>
+            </div>
+
+            <button
+              onClick={handleCloseFilePreview}
+              className="w-9 h-9 rounded-full bg-white hover:bg-slate-100 text-slate-700 flex items-center justify-center shadow-lg transition-colors border border-slate-200"
+              title="Close Preview"
+            >
+              <Icon name="close" className="text-lg" />
+            </button>
+          </div>
+
+          <div
+            className="flex-1 w-full max-w-4xl flex items-center justify-center overflow-auto p-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {previewingFile.isPdf ? (
+              <iframe
+                src={previewingFile.url}
+                title="Document Preview"
+                className="w-full h-[78vh] rounded-2xl shadow-2xl bg-white border border-slate-200"
+              />
+            ) : previewingFile.isImage ? (
+              <img
+                src={previewingFile.url}
+                alt={previewingFile.name}
+                className="max-h-[78vh] max-w-full w-auto object-contain rounded-2xl shadow-2xl bg-white border border-slate-200 p-2"
+              />
+            ) : (
+              <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-xl">
+                <Icon name="description" className="text-4xl text-teal-600 mx-auto mb-2" />
+                <h3 className="font-bold text-slate-800 text-sm mb-1">{previewingFile.name}</h3>
+                <p className="text-xs text-slate-500">Document preview ready for upload.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-2 text-white/80 text-[11px] font-medium flex items-center gap-1.5">
+            <Icon name="info" className="text-xs text-teal-300" />
+            <span>Click &ldquo;← Return to Upload Popup&rdquo; or outside the document to return</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
