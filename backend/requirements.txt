@@ -6,5 +6,6 @@ httpx
 supabase
 google-genai
 pypdf
+pypdfium2
 pillow
 tiktoken
