@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import NotificationBell from './NotificationBell';
+import { getSignedDocumentUrl } from '../lib/supabaseClient';
 
 function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
@@ -86,10 +87,16 @@ export default function MyUploads({
   onDismissNotification,
   onTriggerTestReminder,
   onOpenMedBot,
+  sharingGroups = [],
+  groupMembers = [],
+  onRevokeMember,
+  onAddMember,
 }) {
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [categorySearch, setCategorySearch] = useState('');
+  const [selectedRecordForDetails, setSelectedRecordForDetails] = useState(null);
+
   const dropdownRef = useRef(null);
   const categorySearchInputRef = useRef(null);
 
@@ -176,10 +183,17 @@ export default function MyUploads({
     );
   });
 
+  // STRICT NEWEST-FIRST SORTING: sorts by High-Precision ISO 8601 created_at timestamp
+  const sortedUploads = [...filteredUploads].sort((a, b) => {
+    const timeA = new Date(a.createdAt || a.date || 0).getTime();
+    const timeB = new Date(b.createdAt || b.date || 0).getTime();
+    return timeB - timeA;
+  });
+
   return (
     <div className="bg-[#faf8ff] text-[#131b2e] min-h-screen flex flex-col">
       {/* ── HEADER ── */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-[#00241f] px-4 py-3 shadow-md">
+      <header className="fixed top-0 left-0 right-0 z-40 bg-[#00241f] px-4 py-3 shadow-md">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           {/* Logo */}
           <div className="flex items-center gap-3">
@@ -210,8 +224,9 @@ export default function MyUploads({
                     onOpenMedBot ? onOpenMedBot() : setPage('medbot');
                   }
                 }}
-                className={`text-sm font-medium transition-colors ${link === 'My Uploads' ? 'text-teal-300 font-bold' : 'text-white/80 hover:text-teal-300'
-                  }`}
+                className={`text-sm font-medium transition-colors ${
+                  link === 'My Uploads' ? 'text-teal-300 font-bold' : 'text-white/80 hover:text-teal-300'
+                }`}
               >
                 {link}
               </button>
@@ -240,7 +255,7 @@ export default function MyUploads({
               <div className="w-8 h-8 rounded-full teal-gradient-btn flex items-center justify-center text-white text-sm">
                 <Icon name="person" className="text-lg" />
               </div>
-              <span className="text-[10px] font-semibold text-white/90 max-w-[80px] truncate">
+              <span className="text-[10px] font-semibold text-white/90 max-w-[90px] truncate">
                 {currentUser?.name || 'User'}
               </span>
             </div>
@@ -260,7 +275,6 @@ export default function MyUploads({
 
       {/* ── MAIN CONTENT ── */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 pt-24 pb-16">
-
         {/* Top Title Banner */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
@@ -298,7 +312,7 @@ export default function MyUploads({
                 <span>Select Medical Category</span>
               </span>
               <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">
-                Filter health records by medical specialty
+                Filter health records by clinical specialty
               </span>
             </div>
 
@@ -309,8 +323,9 @@ export default function MyUploads({
               aria-haspopup="listbox"
               aria-expanded={isDropdownOpen}
               aria-label={`Select Medical Category: ${currentCategoryObj.name}`}
-              className={`w-full bg-slate-50 hover:bg-slate-100/90 border rounded-xl px-4 py-3 flex items-center justify-between text-left transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 ${isDropdownOpen ? 'border-teal-500 ring-2 ring-teal-500/20 bg-white' : 'border-slate-200 hover:border-teal-300'
-                }`}
+              className={`w-full bg-slate-50 hover:bg-slate-100/90 border rounded-xl px-4 py-3 flex items-center justify-between text-left transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 ${
+                isDropdownOpen ? 'border-teal-500 ring-2 ring-teal-500/20 bg-white' : 'border-slate-200 hover:border-teal-300'
+              }`}
             >
               <div className="flex items-center gap-3 min-w-0 pr-2">
                 <div className="w-9 h-9 rounded-xl bg-teal-50 border border-teal-100 text-teal-700 flex items-center justify-center flex-shrink-0">
@@ -333,8 +348,9 @@ export default function MyUploads({
               <div className="flex items-center gap-1.5 flex-shrink-0 ml-2 text-slate-400">
                 <Icon
                   name="arrow_drop_down"
-                  className={`text-2xl transition-transform duration-200 ${isDropdownOpen ? 'rotate-180 text-teal-600' : ''
-                    }`}
+                  className={`text-2xl transition-transform duration-200 ${
+                    isDropdownOpen ? 'rotate-180 text-teal-600' : ''
+                  }`}
                 />
               </div>
             </button>
@@ -355,7 +371,7 @@ export default function MyUploads({
                   <input
                     ref={categorySearchInputRef}
                     type="text"
-                    placeholder="Search category (e.g. Cardiology, Pediatrics...)"
+                    placeholder="Search category (e.g. Cardiology, Neurology...)"
                     value={categorySearch}
                     onChange={(e) => setCategorySearch(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
@@ -427,17 +443,19 @@ export default function MyUploads({
                             setIsDropdownOpen(false);
                             setCategorySearch('');
                           }}
-                          className={`w-full text-left px-3 py-2.5 rounded-xl transition-all flex items-center justify-between gap-3 group ${isSelected
-                            ? 'bg-teal-50 border border-teal-200 text-teal-950 font-bold shadow-xs'
-                            : 'hover:bg-slate-50 text-slate-700 border border-transparent'
-                            }`}
+                          className={`w-full text-left px-3 py-2.5 rounded-xl transition-all flex items-center justify-between gap-3 group ${
+                            isSelected
+                              ? 'bg-teal-50 border border-teal-200 text-teal-950 font-bold shadow-xs'
+                              : 'hover:bg-slate-50 text-slate-700 border border-transparent'
+                          }`}
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <div
-                              className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${isSelected
-                                ? 'bg-teal-600 text-white'
-                                : 'bg-slate-100 text-teal-700 group-hover:bg-teal-100'
-                                }`}
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+                                isSelected
+                                  ? 'bg-teal-600 text-white'
+                                  : 'bg-slate-100 text-teal-700 group-hover:bg-teal-100'
+                              }`}
                             >
                               <Icon name={cat.icon} className="text-lg" />
                             </div>
@@ -447,8 +465,9 @@ export default function MyUploads({
                                   {cat.name}
                                 </span>{' '}
                                 <span
-                                  className={`text-[11px] sm:text-xs font-normal ${isSelected ? 'text-teal-700' : 'text-slate-400'
-                                    }`}
+                                  className={`text-[11px] sm:text-xs font-normal ${
+                                    isSelected ? 'text-teal-700' : 'text-slate-400'
+                                  }`}
                                 >
                                   ({cat.explanation})
                                 </span>
@@ -494,8 +513,8 @@ export default function MyUploads({
           </div>
         </section>
 
-        {/* Uploads Grid / List */}
-        {filteredUploads.length === 0 ? (
+        {/* ── UPLOADS GRID / LIST (NEWEST-FIRST SORTED) ── */}
+        {sortedUploads.length === 0 ? (
           <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80 shadow-sm">
             <div className="w-16 h-16 rounded-full bg-teal-50 text-teal-700 flex items-center justify-center mx-auto mb-4">
               <Icon name="inventory_2" className="text-3xl" />
@@ -526,34 +545,61 @@ export default function MyUploads({
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {filteredUploads.map((item) => (
+            {sortedUploads.map((item, index) => (
               <div
                 key={item.id}
-                className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:border-teal-300 hover:shadow-card-glass transition-all flex flex-col justify-between"
+                className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:border-teal-300 hover:shadow-card-glass transition-all flex flex-col justify-between group"
               >
                 <div>
-                  {/* Category Pill & Date */}
-                  <div className="flex items-center justify-between gap-2 mb-3">
+                  {/* Category Pill, Sharing Badge & Upload Timestamp */}
+                  <div className="flex items-center justify-between gap-2 mb-2.5">
                     <span className="px-2.5 py-1 rounded-full bg-teal-50 border border-teal-200 text-teal-800 font-bold text-[10px] tracking-wide uppercase">
                       {item.category}
                     </span>
-                    <span className="text-[11px] text-slate-400 font-mono">
-                      {item.date || item.timestamp}
-                    </span>
+
+                    {/* Sharing Badge */}
+                    {item.isShared ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-100 text-teal-900 border border-teal-300 font-bold text-[10px]">
+                        <Icon name="diversity_1" className="text-xs text-teal-700" />
+                        <span>Shared Care Circle</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[10px]">
+                        <Icon name="lock" className="text-xs text-slate-500" />
+                        <span>Private</span>
+                      </span>
+                    )}
                   </div>
 
                   {/* Title / Description */}
-                  <h3 className="font-bold text-sm text-slate-900 mb-1 leading-snug">
+                  <h3 className="font-bold text-sm text-slate-900 mb-1 leading-snug group-hover:text-teal-900 transition-colors">
                     {item.title || item.description}
                   </h3>
 
-                  {/* Doctor Name */}
-                  {item.doctorName && (
-                    <div className="flex items-center gap-1.5 text-xs text-teal-800 font-medium mb-2">
-                      <Icon name="stethoscope" className="text-sm text-teal-600" />
-                      <span>{item.doctorName}</span>
+                  {/* Doctor Name & Uploader Info */}
+                  <div className="space-y-1 mb-2.5">
+                    {item.doctorName && (
+                      <div className="flex items-center gap-1.5 text-xs text-teal-800 font-medium">
+                        <Icon name="stethoscope" className="text-sm text-teal-600" />
+                        <span>{item.doctorName}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                      <Icon name="person" className="text-xs text-slate-400" />
+                      <span>Uploaded by: <strong className="text-slate-700">{item.uploadedByName || 'Patient'}</strong></span>
                     </div>
-                  )}
+                  </div>
+
+                  {/* High Precision Upload Timestamp */}
+                  <div className="flex items-center gap-1 text-[11px] font-mono text-slate-400 mb-3 bg-slate-50 px-2 py-1 rounded-lg">
+                    <Icon name="schedule" className="text-xs text-teal-600" />
+                    <span>{item.date || item.timestamp}</span>
+                    {index === 0 && (
+                      <span className="ml-auto text-[9px] font-bold bg-teal-500 text-white px-1.5 py-0.2 rounded-full uppercase">
+                        Newest
+                      </span>
+                    )}
+                  </div>
 
                   {/* Attached Files List */}
                   {item.files && item.files.length > 0 && (
@@ -570,6 +616,11 @@ export default function MyUploads({
                             <Icon name="attach_file" className="text-teal-600 text-sm flex-shrink-0" />
                             <span className="truncate font-medium">{file.name}</span>
                           </div>
+                          {file.storagePath && (
+                            <span className="text-[9px] font-bold text-teal-700 bg-teal-100/80 px-1.5 py-0.5 rounded-full flex-shrink-0 ml-1">
+                              Private Storage
+                            </span>
+                          )}
                           {file.size && (
                             <span className="text-[10px] text-slate-400 flex-shrink-0 ml-1">
                               {file.size}
@@ -597,10 +648,10 @@ export default function MyUploads({
                       <span>Ask MedBot</span>
                     </button>
                     <button
-                      onClick={() => alert(`Opening record: "${item.title || item.description}"`)}
-                      className="text-xs font-bold text-teal-800 hover:text-teal-600 hover:underline"
+                      onClick={() => setSelectedRecordForDetails(item)}
+                      className="text-xs font-bold text-teal-800 hover:text-teal-600 hover:underline flex items-center gap-1"
                     >
-                      View Details →
+                      <span>View Details →</span>
                     </button>
                   </div>
                 </div>
@@ -609,6 +660,232 @@ export default function MyUploads({
           </div>
         )}
       </main>
+
+      {/* ── PATIENT RECORD DETAILS MODAL (SINGLE VIEW, NO SPLIT SCREEN) ── */}
+      {selectedRecordForDetails && (
+        <PatientRecordDetailsModal
+          record={selectedRecordForDetails}
+          onClose={() => setSelectedRecordForDetails(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Clean Single-Screen Patient Record Details Modal.
+ * Exclusively presents document metadata and preview for patients in My Uploads
+ * without the doctor-specific split screen or AI TrOCR pipeline.
+ */
+function PatientRecordDetailsModal({ record, onClose }) {
+  const [resolvedImageUrl, setResolvedImageUrl] = useState('');
+
+  useEffect(() => {
+    let isMounted = true;
+    async function resolveFileUrl() {
+      if (!record || !record.files || record.files.length === 0) return;
+      const file = record.files[0];
+      if (file.dataUrl || file.url) {
+        setResolvedImageUrl(file.dataUrl || file.url);
+      } else if (file.storagePath) {
+        const signed = await getSignedDocumentUrl(file.storagePath, 3600);
+        if (isMounted && signed) {
+          setResolvedImageUrl(signed);
+        }
+      }
+    }
+    resolveFileUrl();
+    return () => {
+      isMounted = false;
+    };
+  }, [record]);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  if (!record) return null;
+
+  const isImage = (fileName = '', url = '') => {
+    if (!url && !fileName) return false;
+    if (typeof url === 'string' && url.startsWith('data:image')) return true;
+    return /\.(jpg|jpeg|png|webp|gif|svg)($|\?)/i.test(fileName || url);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal Header */}
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-teal-50/60">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-teal-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+              <Icon name="description" className="text-xl" />
+            </div>
+            <div>
+              <h3 className="font-bold text-base text-slate-900 leading-snug">
+                {record.title || record.description || 'Medical Record Details'}
+              </h3>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 font-bold text-[10px] uppercase">
+                  {record.category}
+                </span>
+                {record.isShared ? (
+                  <span className="px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200 text-[10px] font-semibold flex items-center gap-1">
+                    <Icon name="diversity_1" className="text-xs" />
+                    Shared Care Circle
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold flex items-center gap-1">
+                    <Icon name="lock" className="text-xs" />
+                    Private
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-white hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center border border-slate-200 transition-colors"
+            aria-label="Close"
+          >
+            <Icon name="close" className="text-lg" />
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="p-6 overflow-y-auto space-y-5 flex-1">
+          {/* Metadata Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50/90 p-4 rounded-2xl border border-slate-100 text-xs">
+            {record.doctorName && (
+              <div className="flex items-center gap-2 text-slate-700">
+                <div className="w-7 h-7 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center flex-shrink-0">
+                  <Icon name="stethoscope" className="text-sm" />
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block uppercase font-bold">Doctor / Specialist</span>
+                  <span className="font-semibold text-slate-900">{record.doctorName}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 text-slate-700">
+              <div className="w-7 h-7 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center flex-shrink-0">
+                <Icon name="person" className="text-sm" />
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 block uppercase font-bold">Uploaded By</span>
+                <span className="font-semibold text-slate-900">{record.uploadedByName || 'Patient'}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 text-slate-700">
+              <div className="w-7 h-7 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center flex-shrink-0">
+                <Icon name="schedule" className="text-sm" />
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 block uppercase font-bold">Upload Date & Time</span>
+                <span className="font-mono text-slate-800">{record.date || record.timestamp}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 text-slate-700">
+              <div className="w-7 h-7 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center flex-shrink-0">
+                <Icon name="verified" className="text-sm" />
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 block uppercase font-bold">Integrity Status</span>
+                <span className="font-semibold text-teal-800">{record.status || 'Verified Record'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Description if present and differs from title */}
+          {record.description && record.description !== record.title && (
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200">
+              <span className="text-[10px] text-slate-400 block uppercase font-bold mb-1">Clinical Notes & Summary</span>
+              <p className="text-xs text-slate-700 whitespace-pre-line leading-relaxed">{record.description}</p>
+            </div>
+          )}
+
+          {/* Document File & Image Preview */}
+          <div>
+            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center justify-between">
+              <span>Attached Medical Document</span>
+              {record.files?.[0]?.size && (
+                <span className="text-[10px] font-normal text-slate-400 font-mono">
+                  {record.files[0].size}
+                </span>
+              )}
+            </h4>
+
+            {record.files && record.files.length > 0 ? (
+              <div className="space-y-3">
+                {record.files.map((file, idx) => {
+                  const fileSrc = idx === 0 && resolvedImageUrl ? resolvedImageUrl : (file.dataUrl || file.url || '');
+                  const hasImage = isImage(file.name, fileSrc);
+
+                  return (
+                    <div key={idx} className="bg-slate-50 rounded-2xl p-3 border border-slate-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 truncate">
+                          <Icon name="attach_file" className="text-teal-600 text-sm flex-shrink-0" />
+                          <span className="text-xs font-medium text-slate-800 truncate">{file.name}</span>
+                        </div>
+                        {file.storagePath && (
+                          <span className="text-[9px] font-bold text-teal-700 bg-teal-100 px-2 py-0.5 rounded-full flex-shrink-0 ml-1">
+                            Private Storage
+                          </span>
+                        )}
+                      </div>
+
+                      {hasImage && fileSrc ? (
+                        <div className="rounded-xl overflow-hidden bg-slate-900/5 border border-slate-200 flex items-center justify-center max-h-[380px] p-2">
+                          <img
+                            src={fileSrc}
+                            alt={file.name || 'Medical Document'}
+                            className="max-h-[360px] w-auto max-w-full object-contain rounded-lg shadow-sm"
+                          />
+                        </div>
+                      ) : (
+                        <div className="py-8 text-center text-slate-500 bg-white rounded-xl border border-dashed border-slate-200">
+                          <Icon name="description" className="text-4xl text-slate-300 mb-1" />
+                          <p className="text-xs font-medium text-slate-700">Document File Attached</p>
+                          <p className="text-[11px] text-slate-400">{file.name}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-8 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-xs">
+                No physical file attached to this record.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Modal Footer */}
+        <div className="px-6 py-3.5 border-t border-slate-100 bg-slate-50/50 flex items-center justify-end">
+          <button
+            onClick={onClose}
+            className="px-5 py-2 rounded-full border border-slate-300 text-slate-700 hover:bg-slate-100 font-semibold text-xs transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

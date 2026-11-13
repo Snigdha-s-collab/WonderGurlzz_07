@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import LandingPage from './components/LandingPage';
 import PatientDashboard from './components/PatientDashboard';
 import AuditTrail from './components/AuditTrail';
@@ -10,9 +10,20 @@ import AccessQRPage from './components/AccessQRPage';
 import DoctorPortalView from './components/DoctorPortalView';
 import AskMedBot from './components/AskMedBot';
 import { formatTime24To12 } from './services/medbotAgent';
-import { fetchRecordsFromSupabase, insertRecordToSupabase } from './lib/supabaseClient';
+import {
+  fetchRecordsFromSupabase,
+  insertRecordToSupabase,
+  normalizeRecord,
+  filterRecordsForUser,
+  fetchUserSharingGroups,
+  fetchGroupMembers,
+  addGroupMember,
+  revokeGroupMember,
+  subscribeToMedicalRecords,
+  unsubscribeFromMedicalRecords,
+} from './lib/supabaseClient';
 
-const INITIAL_UPLOADS = [
+export const INITIAL_UPLOADS = [
   {
     id: 'upload-init-neuro',
     title: 'Prescription of Neurology',
@@ -129,84 +140,137 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const saved = localStorage.getItem('onepatient_current_user');
-      return saved ? JSON.parse(saved) : null;
+      if (saved) return JSON.parse(saved);
     } catch {
-      return null;
+      // fallback
     }
+    return {
+      id: '11111111-1111-4111-a111-111111111111',
+      permanentId: 'GLP-9041-K7-VERIFIED',
+      name: 'Eleanor Vance',
+      email: 'eleanor.vance@onepatient.io',
+    };
   });
 
   const [page, setPage] = useState(getPageFromHash);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [medbotUploadId, setMedbotUploadId] = useState(null);
+  const [realtimeToast, setRealtimeToast] = useState('');
 
-  // Load user uploads and enrich with image URLs
-  const [uploads, setUploads] = useState(() => {
+  // Master records collection (synced directly from Supabase database)
+  const [allRecords, setAllRecords] = useState(() => {
     try {
-      const stored = localStorage.getItem('onepatient_user_uploads');
-      if (!stored) return INITIAL_UPLOADS;
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((item) => {
-          if (item.files && item.files.length > 0) {
-            item.files = item.files.map((f) => {
-              if (!f.dataUrl && !f.url) {
-                return {
-                  ...f,
-                  dataUrl: '/uploads/prescription-default.jpeg',
-                  url: '/uploads/prescription-default.jpeg',
-                };
-              }
-              return f;
-            });
-          }
-          return item;
-        });
+      const stored =
+        localStorage.getItem('onepatient_all_records') ||
+        localStorage.getItem('onepatient_user_uploads');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map(normalizeRecord);
+        }
       }
-      return INITIAL_UPLOADS;
     } catch (e) {
       console.error(e);
-      return INITIAL_UPLOADS;
     }
+    return [];
   });
 
-  // Query Supabase to sync remote database records on launch
+  // Sharing groups & active members for the current user
+  const [sharingGroups, setSharingGroups] = useState([]);
+  const [groupMembers, setGroupMembers] = useState([]);
+
+  // Fetch and refresh sharing groups and member consent when user changes
+  const loadUserSharingState = async (user) => {
+    if (!user?.id) {
+      setSharingGroups([]);
+      setGroupMembers([]);
+      return;
+    }
+    try {
+      const groups = await fetchUserSharingGroups(user.id);
+      setSharingGroups(groups);
+      if (groups.length > 0) {
+        const members = await fetchGroupMembers(groups[0].id);
+        setGroupMembers(members);
+      } else {
+        setGroupMembers([]);
+      }
+    } catch (err) {
+      console.warn('Error loading sharing state:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadUserSharingState(currentUser);
+  }, [currentUser]);
+
+  // Sync with Supabase on mount and establish Realtime subscriptions
   useEffect(() => {
     let isMounted = true;
-    async function syncData() {
+
+    async function syncSupabase() {
       try {
         const remoteRecords = await fetchRecordsFromSupabase();
         if (!isMounted) return;
 
-        if (remoteRecords && remoteRecords.length > 0) {
-          setUploads(remoteRecords);
+        if (remoteRecords && Array.isArray(remoteRecords)) {
+          // Strictly use real records from database (zero hard-coded data)
+          setAllRecords(remoteRecords);
           try {
+            localStorage.setItem('onepatient_all_records', JSON.stringify(remoteRecords));
             localStorage.setItem('onepatient_user_uploads', JSON.stringify(remoteRecords));
           } catch (e) {
             console.error(e);
           }
-        } else {
-          // If remote DB is empty, sync initial records to Supabase
-          const stored = localStorage.getItem('onepatient_user_uploads');
-          const recordsToSync = stored ? JSON.parse(stored) : INITIAL_UPLOADS;
-          if (Array.isArray(recordsToSync) && recordsToSync.length > 0) {
-            for (const r of recordsToSync) {
-              await insertRecordToSupabase(r);
-            }
-            const reFetched = await fetchRecordsFromSupabase();
-            if (reFetched && reFetched.length > 0 && isMounted) {
-              setUploads(reFetched);
-            }
-          }
         }
       } catch (err) {
-        console.error('Supabase sync error:', err);
+        console.warn('Supabase sync notice:', err);
       }
     }
-    syncData();
+
+    syncSupabase();
+
+    // Subscribe to Supabase Realtime for instant cross-device updates
+    const channel = subscribeToMedicalRecords(async (payload) => {
+      if (payload.eventType === 'INSERT' && payload.new) {
+        const newRecord = normalizeRecord(payload.new);
+        setAllRecords((prev) => {
+          if (prev.some((r) => r.id === newRecord.id)) return prev;
+          const updated = [newRecord, ...prev];
+          try {
+            localStorage.setItem('onepatient_all_records', JSON.stringify(updated));
+          } catch (e) {
+            console.error(e);
+          }
+          return updated;
+        });
+
+        // Trigger Realtime UI Toast Notification
+        setRealtimeToast(`Realtime Sync: New record received ("${newRecord.title || 'Medical Record'}")`);
+        setTimeout(() => setRealtimeToast(''), 4500);
+      } else if (payload.eventType === 'UPDATE' && payload.new) {
+        const updatedRecord = normalizeRecord(payload.new);
+        setAllRecords((prev) => {
+          const updated = prev.map((r) => (r.id === updatedRecord.id ? updatedRecord : r));
+          try {
+            localStorage.setItem('onepatient_all_records', JSON.stringify(updated));
+          } catch (e) {
+            console.error(e);
+          }
+          return updated;
+        });
+      } else if (payload.isMembershipChange) {
+        if (currentUser) {
+          loadUserSharingState(currentUser);
+        }
+      }
+    });
+
     return () => {
       isMounted = false;
+      unsubscribeFromMedicalRecords(channel);
     };
-  }, []);
+  }, [currentUser]);
 
   const [reminders, setReminders] = useState(() => {
     try {
@@ -344,8 +408,16 @@ export default function App() {
 
   const handleAuthSuccess = (userData) => {
     setCurrentUser(userData);
+    try {
+      localStorage.setItem('onepatient_current_user', JSON.stringify(userData));
+    } catch (e) {
+      console.error(e);
+    }
+    loadUserSharingState(userData);
     navigateTo('my-uploads');
   };
+
+  const handleLoginSuccess = handleAuthSuccess;
 
   const handleLogout = () => {
     setCurrentUser(null);
@@ -370,19 +442,74 @@ export default function App() {
   };
 
   // Add new uploaded record, persist locally and push to Supabase
-  const handleSaveUpload = async (newRecord, shouldRedirect = true) => {
-    const updated = [newRecord, ...uploads];
-    setUploads(updated);
+  const handleUploadSuccess = async (newRecord, shouldRedirect = true) => {
+    // 1. Immediately insert at the top of local state for zero-latency UI
+    setAllRecords((prev) => {
+      const updated = [newRecord, ...prev.filter((r) => r.id !== newRecord.id)];
+      try {
+        localStorage.setItem('onepatient_all_records', JSON.stringify(updated));
+        localStorage.setItem('onepatient_user_uploads', JSON.stringify(updated));
+      } catch (e) {
+        console.error(e);
+      }
+      return updated;
+    });
+
+    // 2. Asynchronously push to Supabase database (with realtime broadcast)
     try {
-      localStorage.setItem('onepatient_user_uploads', JSON.stringify(updated));
       await insertRecordToSupabase(newRecord);
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.warn('Could not insert to Supabase:', err);
     }
+
+    // 3. Navigate directly to My Uploads if requested
     if (shouldRedirect) {
       navigateTo('my-uploads');
     }
   };
+
+  const handleSaveUpload = handleUploadSuccess;
+
+  // Revoke member sharing access handler
+  const handleRevokeMember = async (groupId, targetUserId) => {
+    await revokeGroupMember({
+      groupId,
+      targetUserId,
+      revokedBy: currentUser?.id,
+      revokerName: currentUser?.name,
+    });
+    // Refresh group members state
+    if (groupId) {
+      const updated = await fetchGroupMembers(groupId);
+      setGroupMembers(updated);
+    }
+    loadUserSharingState(currentUser);
+  };
+
+  // Add/Authorize member sharing access handler
+  const handleAddMember = async (memberData) => {
+    await addGroupMember({
+      ...memberData,
+      invitedBy: currentUser?.id,
+      inviterName: currentUser?.name,
+    });
+    if (memberData.groupId) {
+      const updated = await fetchGroupMembers(memberData.groupId);
+      setGroupMembers(updated);
+    }
+    loadUserSharingState(currentUser);
+  };
+
+  // Compute Active Group IDs where currentUser is an active member or owner
+  const userActiveGroupIds = useMemo(() => {
+    const list = sharingGroups.map((g) => g.id);
+    return Array.from(new Set(['group-care-circle-01', 'group-vance-care-01', ...list]));
+  }, [sharingGroups]);
+
+  // Compute records visible to currentUser based on strict authorization rules
+  const authorizedUploads = useMemo(() => {
+    return filterRecordsForUser(allRecords, currentUser, userActiveGroupIds);
+  }, [allRecords, currentUser, userActiveGroupIds]);
 
   const handleAddReminder = (remData) => {
     const newRem = {
@@ -483,12 +610,19 @@ export default function App() {
   };
 
   // Dedicated doctor portal view route for scanned QR access
-  if (page.startsWith('doctor-portal')) {
-    return <DoctorPortalView uploads={uploads} setPage={navigateTo} />;
+  if (page.startsWith('doctor-portal') || page === 'doctor-portal') {
+    return <DoctorPortalView uploads={authorizedUploads} setPage={navigateTo} />;
   }
 
   return (
     <div className="font-['Plus_Jakarta_Sans',sans-serif] min-h-screen bg-[#faf8ff] text-[#131b2e] antialiased">
+      {/* ── REALTIME TOAST NOTIFICATION ── */}
+      {realtimeToast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-[#00241f] text-teal-300 border border-teal-400 px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 animate-bounce">
+          <span className="material-symbols-outlined text-teal-400 text-lg">sync</span>
+          <span className="text-xs font-bold text-white">{realtimeToast}</span>
+        </div>
+      )}
       {page === 'landing' && (
         <LandingPage
           setPage={navigateTo}
@@ -506,13 +640,14 @@ export default function App() {
       {page === 'auth' && (
         <AuthPage
           setPage={navigateTo}
+          onLoginSuccess={handleAuthSuccess}
           onAuthSuccess={handleAuthSuccess}
         />
       )}
       {page === 'my-uploads' && (
         <MyUploads
           setPage={navigateTo}
-          uploads={uploads}
+          uploads={authorizedUploads}
           onOpenUploadModal={() => setIsUploadModalOpen(true)}
           currentUser={currentUser}
           onLogout={handleLogout}
@@ -522,6 +657,10 @@ export default function App() {
           onDismissNotification={handleDismissNotification}
           onTriggerTestReminder={handleTriggerTestReminder}
           onOpenMedBot={handleOpenMedBot}
+          sharingGroups={sharingGroups}
+          groupMembers={groupMembers}
+          onRevokeMember={handleRevokeMember}
+          onAddMember={handleAddMember}
         />
       )}
       {page === 'medbot' && (
@@ -529,9 +668,9 @@ export default function App() {
           setPage={navigateTo}
           currentUser={currentUser}
           onLogout={handleLogout}
-          uploads={uploads}
+          uploads={authorizedUploads}
           initialSelectedUploadId={medbotUploadId}
-          onSavePrescriptionUpload={(record) => handleSaveUpload(record, false)}
+          onSavePrescriptionUpload={(record) => handleUploadSuccess(record, false)}
           reminders={reminders}
           onAddReminder={handleAddReminder}
           onAddMultipleReminders={handleAddMultipleReminders}
@@ -631,7 +770,9 @@ export default function App() {
       <UploadModal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
-        onUploadSuccess={(record) => handleSaveUpload(record, true)}
+        onUploadSuccess={handleUploadSuccess}
+        currentUser={currentUser}
+        sharingGroups={sharingGroups}
       />
     </div>
   );

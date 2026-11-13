@@ -366,9 +366,9 @@ export default function AskMedBot({
   const handleNavClick = (link) => {
     if (link === 'Home') setPage('landing');
     else if (link === 'My Uploads') setPage('my-uploads');
-    else if (link === 'Access QR') setPage('dashboard');
+    else if (link === 'Access QR') setPage('access-qr');
     else if (link === 'Ask MedBot') setPage('medbot');
-    else if (link === 'About Us') setPage('landing');
+    else if (link === 'About Us') setPage('about-us');
     setMenuOpen(false);
   };
 

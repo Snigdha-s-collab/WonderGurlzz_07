@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getSignedDocumentUrl } from '../lib/supabaseClient';
 
 function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
@@ -25,8 +26,36 @@ export default function DocumentSplitViewer({ record, onClose }) {
   const filesList = Array.isArray(record.files) ? record.files : [];
   const currentFile = filesList[selectedFileIndex] || filesList[0] || null;
 
-  // Resolve actual image URL from user-uploaded file (Base64 dataUrl or remote url)
-  const imageSource = currentFile ? currentFile.dataUrl || currentFile.url || '' : '';
+  const [signedUrl, setSignedUrl] = useState('');
+  const [isResolvingUrl, setIsResolvingUrl] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function resolveUrl() {
+      if (!currentFile) {
+        setSignedUrl('');
+        return;
+      }
+      const rawPath = currentFile.storagePath || currentFile.storage_path;
+      if (rawPath && !currentFile.dataUrl && !currentFile.url) {
+        setIsResolvingUrl(true);
+        const resolved = await getSignedDocumentUrl(rawPath, 300);
+        if (isMounted) {
+          setSignedUrl(resolved || '');
+          setIsResolvingUrl(false);
+        }
+      } else {
+        setSignedUrl(currentFile.dataUrl || currentFile.url || '');
+      }
+    }
+    resolveUrl();
+    return () => {
+      isMounted = false;
+    };
+  }, [currentFile]);
+
+  // Resolve actual image URL from user-uploaded file (Signed URL, Base64 dataUrl, or remote url)
+  const imageSource = signedUrl || currentFile?.dataUrl || currentFile?.url || '';
 
   const isImageFile =
     imageSource &&
@@ -114,6 +143,18 @@ Digitized Clinical Observations:
 
         {/* Action Controls */}
         <div className="flex items-center gap-2">
+          {record.isShared && (
+            <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-teal-900/80 border border-teal-400/50 text-teal-300 text-[10px] font-bold">
+              <Icon name="share" className="text-xs" />
+              <span>Shared Record</span>
+            </span>
+          )}
+          {(currentFile?.storagePath || currentFile?.storage_path) && (
+            <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-[10px] font-bold">
+              <Icon name="lock" className="text-xs" />
+              <span>Private Storage (Signed URL)</span>
+            </span>
+          )}
           <button
             onClick={handleCopy}
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-teal-900/60 border border-teal-500/40 text-teal-300 hover:text-white text-xs font-semibold transition-colors"
