@@ -127,13 +127,13 @@ export default function AuthPage({ onLoginSuccess }) {
           <div className="w-14 h-14 rounded-full teal-gradient-btn flex items-center justify-center shadow-orb-glow mb-3">
             <span className="text-white font-black text-xl">Dr.</span>
           </div>
-          <h1 className="text-2xl font-black text-[#00241f] tracking-tight">OnePatient</h1>
+          <h1 className="text-2xl font-black text-[#00241f] tracking-tight">Hola</h1>
           <p className="text-xs text-teal-700 font-semibold uppercase tracking-wider mt-0.5">
             Federated Health Record Ledger
           </p>
           <div className="mt-3 text-xs text-slate-500 max-w-xs">
             {isSignUp
-              ? 'Create your sovereign cryptographic medical identity.'
+              ? 'Create your secure medical account.'
               : 'Sign in to access your unified medical story & records.'}
           </div>
         </div>

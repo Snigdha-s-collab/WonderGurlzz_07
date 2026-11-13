@@ -33,7 +33,10 @@ export async function fetchRecordsFromSupabase(patientId = null) {
         date: row.date,
         rawDate: row.raw_date,
         time: row.time,
-        status: row.status || 'Verified Record',
+        status:
+          row.status && !row.status.toLowerCase().includes('cryptograph')
+            ? row.status
+            : 'Verified Record',
         files: row.files || [],
         ocrData: row.ocr_data,
       }));
@@ -69,7 +72,10 @@ export async function insertRecordToSupabase(record) {
         date: record.date || new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
         raw_date: rawDateVal,
         time: record.time || new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        status: record.status || 'Verified Record',
+        status:
+          record.status && !record.status.toLowerCase().includes('cryptograph')
+            ? record.status
+            : 'Verified Record',
         files: record.files || [],
         ocr_data: record.ocrData || null, // Stage 5: Save verified OCR response into JSONB column
       },

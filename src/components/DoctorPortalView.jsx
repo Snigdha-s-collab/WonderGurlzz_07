@@ -38,20 +38,29 @@ export default function DoctorPortalView({ setPage, uploads = [], onUpdateRecord
 
   const { token, patient } = getHashParams();
 
+  const isLegitRecord = (item) =>
+    item.id !== 'upload-init-neuro' &&
+    item.id !== 'upload-init-general' &&
+    !item.doctorName?.includes('Sudarshan') &&
+    !item.doctorName?.includes('Neelkanta') &&
+    !item.doctorName?.includes('Rajiv') &&
+    !item.title?.includes('Rajiv') &&
+    !(item.title === 'General' && !item.doctorName);
+
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedRecordForViewer, setSelectedRecordForViewer] = useState(null);
-  const [portalRecords, setPortalRecords] = useState(uploads);
+  const [portalRecords, setPortalRecords] = useState(() => (uploads || []).filter(isLegitRecord));
 
   useEffect(() => {
     if (uploads && uploads.length > 0) {
-      setPortalRecords(uploads);
+      setPortalRecords(uploads.filter(isLegitRecord));
     }
   }, [uploads]);
 
   useEffect(() => {
     fetchRecordsFromSupabase().then((remote) => {
       if (remote && remote.length > 0) {
-        setPortalRecords(remote);
+        setPortalRecords(remote.filter(isLegitRecord));
       }
     });
   }, []);
@@ -71,7 +80,7 @@ export default function DoctorPortalView({ setPage, uploads = [], onUpdateRecord
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-white font-extrabold text-base leading-tight">OnePatient Clinical Portal</span>
+                <span className="text-white font-extrabold text-base leading-tight">Hola Clinical Portal</span>
                 <span className="bg-teal-900 border border-teal-400/40 text-teal-300 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
                   Verified Doctor View
                 </span>

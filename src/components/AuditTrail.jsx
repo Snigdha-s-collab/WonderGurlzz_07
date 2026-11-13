@@ -56,7 +56,7 @@ export default function AuditTrail({ setPage, onOpenUploadModal }) {
               </div>
             </div>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Every read, upload, and consent modification event is cryptographically signed and stored in this immutable tamper-evident log.
+              Every read, upload, and consent modification event is securely logged and stored in this immutable audit log.
             </p>
           </div>
 

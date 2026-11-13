@@ -194,101 +194,8 @@ export async function get_database_records(customRecords = null) {
     console.warn('Local database read error:', err);
   }
 
-  // 3. Fallback default database seed matching the user's uploaded records
-  return [
-    {
-      id: 'upload-init-neuro',
-      title: 'Prescription of Neurology',
-      description: 'Prescription of Neurology — Neurological evaluation and nerve support therapy with Dr. Sudarshan Bhat.',
-      doctorName: 'Dr.Sudarshan Bhat',
-      category: 'Neurology',
-      date: 'Nov 13, 2026',
-      rawDate: '2026-11-13',
-      time: '05:55 PM',
-      timestamp: 'Nov 13, 2026 • 05:55 PM',
-      prescriptionText:
-        'Dr. A. Sudarshan Bhat, M.D. (Ayu) • Reg. No. 15051\nVishnu Ayurvedalaya & Panchakarma Clinic\nPrescribed Medication:\n1. Neargon LG — 0 - 1 - 0 (30 tabs) — Take 1 tab afternoon after lunch with water\n2. Neuron — 1 - 0 - 1 (60 tabs) — Take 1 tab morning & 1 tab night with warm water\n3. Neo — 1 - 0 - 1 (60 tabs) — Take 1 tab morning & 1 tab night with warm water\n4. Mahanarayan Taila — External gentle application as directed for nerve/muscular pain',
-      files: [
-        {
-          name: 'WhatsApp Image 2026-11-12 at 5.55.52 PM.jpeg',
-          size: '91.4 KB',
-          type: 'image/jpeg',
-          url: '/uploads/WhatsApp-Image-2026-11-12.jpeg',
-          dataUrl: '/uploads/WhatsApp-Image-2026-11-12.jpeg',
-        },
-      ],
-      ocrData: {
-        model: 'TrOCR-Large-Stage2-Medical (Vision Transformer + Seq2Seq)',
-        confidence: '99.1%',
-        clinicName: 'Vishnu Ayurvedalaya & Panchakarma Clinic',
-        doctorDetails: 'Dr. A. Sudarshan Bhat, M.D. (Ayu) • Reg. No. 15051',
-        phone: '9481227666',
-        diagnosis: 'Neurological evaluation, Cervical & Peripheral nerve support, Neuro-muscular stiffness',
-        structuredMedications: [
-          {
-            name: 'Neargon LG',
-            dosage: '0 - 1 - 0 (30 tabs)',
-            frequency: 'Once daily (Afternoon / Midday)',
-            timing: '01:30 PM after lunch',
-            duration: '30 days',
-            purpose: 'Neurological & Cervical Pain Relief',
-            safetyAlert: 'Take after afternoon meals with water.',
-          },
-          {
-            name: 'Neuron',
-            dosage: '1 - 0 - 1 (60 tabs)',
-            frequency: 'Twice daily (Morning & Night)',
-            timing: '08:30 AM & 09:30 PM with warm water',
-            duration: '30 days',
-            purpose: 'Nerve Regeneration, Neuro-Nourishment & Vitality',
-            safetyAlert: 'Take with warm water after meals.',
-          },
-          {
-            name: 'Neo',
-            dosage: '1 - 0 - 1 (60 tabs)',
-            frequency: 'Twice daily (Morning & Night)',
-            timing: '08:30 AM & 09:30 PM with warm water',
-            duration: '30 days',
-            purpose: 'Neuro-Muscular Strength & Rejuvenation',
-            safetyAlert: 'Take with warm water after meals.',
-          },
-          {
-            name: 'Mahanarayan Oil',
-            dosage: 'External application',
-            frequency: 'As needed (PRN)',
-            timing: 'Morning or Bedtime',
-            duration: 'As needed',
-            purpose: 'Relief of Joint & Nerve Discomfort',
-            safetyAlert: 'External application only; do not ingest.',
-          },
-        ],
-      },
-      status: 'Cryptographically Verified',
-    },
-    {
-      id: 'upload-init-general',
-      title: 'General Medications',
-      description: 'General health consultation and maintenance prescription with Dr. Neelkanta.',
-      doctorName: 'Dr.Neelkanta',
-      category: 'General Medicine',
-      date: 'Nov 12, 2026',
-      rawDate: '2026-11-12',
-      time: '01:06 AM',
-      timestamp: 'Nov 12, 2026 • 01:06 AM',
-      prescriptionText:
-        'Consultation with Dr. Neelkanta (General Medicine)\n1. General maintenance and metabolic health\n2. Maintain balanced nutrition, adequate hydration, and periodic vitals check',
-      files: [
-        {
-          name: 'WhatsApp Image 2026-11-13 at 1.06.37 AM.jpeg',
-          size: '238.5 KB',
-          type: 'image/jpeg',
-          url: '/uploads/prescription-default.jpeg',
-          dataUrl: '/uploads/prescription-default.jpeg',
-        },
-      ],
-      status: 'Cryptographically Verified',
-    },
-  ];
+  // 3. Fallback: return empty list if no records exist
+  return [];
 }
 
 /**
@@ -1514,6 +1421,40 @@ export async function askMedBotAgent({
   reminders = [],
   apiConfig = {},
 }) {
+  // 1. Primary RAG Vector Ingestion & Grounded Retrieval via Backend
+  try {
+    const patientId = activePrescription?.patientId || allPrescriptions[0]?.patientId || 'GLP-9041-K7-VERIFIED';
+    const ragRes = await fetch('http://127.0.0.1:8000/api/medbot/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        patient_id: patientId,
+        query: question,
+      }),
+    });
+    if (ragRes.ok) {
+      const ragData = await ragRes.json();
+      if (ragData && ragData.answer) {
+        return {
+          status: ragData.rejected_by_guardrail ? 'guardrail' : 'grounded',
+          urgent: false,
+          reply: ragData.answer,
+          engine: 'Gemini RAG Vector Agent (Verified Records)',
+          citedMedications: [],
+          suggestedFollowUps: ragData.rejected_by_guardrail
+            ? []
+            : ['What medicines did the doctor prescribe?', 'When should I take my medications?'],
+          toolsUsed: ragData.sources && ragData.sources.length > 0
+            ? ragData.sources.map((s) => s.source)
+            : ['match_medical_chunks'],
+        };
+      }
+    }
+  } catch (ragErr) {
+    // If backend is offline or loading, proceed safely to local correlation
+    console.debug('RAG backend notice:', ragErr.message);
+  }
+
   // Query all database SQL tools in parallel
   const [meds, allergies, conditions, labs, instructions, searchHits, reportCorrelations] = await Promise.all([
     get_medications(allPrescriptions),

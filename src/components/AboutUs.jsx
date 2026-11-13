@@ -13,7 +13,7 @@ export default function AboutUs({ setPage, currentUser, onLogout, onOpenUploadMo
     {
       step: '01',
       title: 'Patient Account Creation',
-      desc: 'Patient registers and signs into their cryptographically secured OnePatient account.',
+      desc: 'Patient registers and signs into their secure OnePatient account.',
       icon: 'person_add',
       status: 'Implemented',
     },
@@ -57,7 +57,7 @@ export default function AboutUs({ setPage, currentUser, onLogout, onOpenUploadMo
   const features = [
     {
       name: 'Patient Authentication',
-      desc: 'Secure cryptographic identity and session management protecting sensitive patient records.',
+      desc: 'Secure identity and session management protecting sensitive patient records.',
       icon: 'lock',
       tag: 'Live Feature',
       isUpcoming: false,
@@ -221,10 +221,7 @@ export default function AboutUs({ setPage, currentUser, onLogout, onOpenUploadMo
             >
               <span className="text-white font-black text-sm">Dr.</span>
             </button>
-            <div>
-              <div className="text-white font-bold text-base leading-tight">OnePatient</div>
-              <div className="text-teal-300 text-[10px] font-medium leading-tight">Unified Health Ledger</div>
-            </div>
+            <div className="text-white font-bold text-lg leading-tight">Hola</div>
           </div>
 
           {/* Desktop Nav */}
@@ -237,9 +234,7 @@ export default function AboutUs({ setPage, currentUser, onLogout, onOpenUploadMo
                   else if (link === 'My Uploads') setPage('my-uploads');
                   else if (link === 'Access QR') setPage('access-qr');
                   else if (link === 'About Us') setPage('about-us');
-                  else if (link === 'Ask MedBot') {
-                    alert('Ask MedBot AI: You can consult regarding your uploaded prescriptions and health history.');
-                  }
+                  else if (link === 'Ask MedBot') setPage('medbot');
                 }}
                 className={`text-sm font-medium transition-colors ${
                   link === 'About Us' ? 'text-teal-300 font-bold' : 'text-white/80 hover:text-teal-300'

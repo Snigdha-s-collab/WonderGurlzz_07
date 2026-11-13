@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import NotificationBell from './NotificationBell';
+import { supabase } from '../lib/supabaseClient';
 import {
   analyzePrescription,
   askMedBotAgent,
@@ -14,10 +15,76 @@ function Icon({ name, className = '' }) {
 }
 
 /**
+ * Helper to parse and render text with interactive blue citation links.
+ * When citations such as "(Page 1, Source: Document upload-1794585403207)" or "(Page 1, Source: upload-1794585403207)"
+ * appear, they are rendered as clickable blue links that open the source document modal with the finding underlined.
+ */
+function renderTextWithCitations(rawText, lineContext, onOpenCitation) {
+  if (!rawText) return null;
+
+  const citationSplitRegex = /(\((?:Page\s*\d+[,\s]*)?Source:\s*(?:Document\s*)?[a-zA-Z0-9_\-]+[^)]*\))/gi;
+  const citationMatchRegex = /^\((?:Page\s*(\d+)[,\s]*)?Source:\s*(?:Document\s*)?([a-zA-Z0-9_\-]+)/i;
+
+  const segments = rawText.split(citationSplitRegex);
+
+  return segments.map((segment, segIdx) => {
+    const match = segment.match(citationMatchRegex);
+    if (match) {
+      const pageNumber = match[1] || '1';
+      const docId = match[2];
+
+      // Extract clean finding snippet from line context
+      const cleanSnippet = (lineContext || '')
+        .replace(/^[\*\-•\d\.]+\s*/, '')
+        .replace(/\((?:Page\s*\d+[,\s]*)?Source:[^)]*\)/gi, '')
+        .replace(/\*\*/g, '')
+        .trim();
+
+      return (
+        <button
+          key={segIdx}
+          type="button"
+          onClick={() => {
+            if (onOpenCitation) {
+              onOpenCitation({
+                docId,
+                pageNumber,
+                snippet: cleanSnippet || segment,
+                citationText: segment,
+              });
+            }
+          }}
+          className="text-blue-600 hover:text-blue-800 underline decoration-blue-500 font-semibold inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded hover:bg-blue-50 transition-colors cursor-pointer text-xs"
+          title={`Click to open source document (${docId})`}
+        >
+          <span className="material-symbols-outlined text-[13px] text-blue-600 select-none">
+            visibility
+          </span>
+          <span>{segment}</span>
+        </button>
+      );
+    }
+
+    const boldParts = segment.split(/(\*\*[^*]+\*\*)/g);
+    return boldParts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return (
+          <strong key={`${segIdx}-${i}`} className="font-bold text-slate-900">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      return <span key={`${segIdx}-${i}`}>{part}</span>;
+    });
+  });
+}
+
+/**
  * Rich markdown formatter for AI clinical responses.
  * Supports headings (###, ####), bold (**text**), lists (*, -, •), and paragraphs.
+ * Seamlessly integrates clickable citation links.
  */
-function renderFormattedText(text) {
+function renderFormattedText(text, onOpenCitation) {
   if (!text) return null;
   const lines = text.split('\n');
 
@@ -26,18 +93,20 @@ function renderFormattedText(text) {
 
     // H3 Heading
     if (trimmed.startsWith('### ')) {
+      const headingContent = trimmed.replace(/^###\s+/, '');
       return (
         <h3 key={lineIdx} className="text-sm font-extrabold text-slate-900 mt-3 mb-1 flex items-center gap-1.5">
-          {trimmed.replace(/^###\s+/, '')}
+          {renderTextWithCitations(headingContent, headingContent, onOpenCitation)}
         </h3>
       );
     }
 
     // H4 Heading
     if (trimmed.startsWith('#### ')) {
+      const headingContent = trimmed.replace(/^####\s+/, '');
       return (
         <h4 key={lineIdx} className="text-xs font-bold text-teal-900 uppercase tracking-wide mt-2.5 mb-1">
-          {trimmed.replace(/^####\s+/, '')}
+          {renderTextWithCitations(headingContent, headingContent, onOpenCitation)}
         </h4>
       );
     }
@@ -45,21 +114,11 @@ function renderFormattedText(text) {
     // Bullet points
     if (/^[\*\-•]\s+/.test(trimmed)) {
       const bulletContent = trimmed.replace(/^[\*\-•]\s+/, '');
-      const parts = bulletContent.split(/(\*\*[^*]+\*\*)/g);
       return (
         <div key={lineIdx} className="flex items-start gap-2 ml-2 my-1 text-xs leading-relaxed text-slate-700">
           <span className="text-teal-600 font-bold select-none">•</span>
-          <div>
-            {parts.map((part, i) => {
-              if (part.startsWith('**') && part.endsWith('**')) {
-                return (
-                  <strong key={i} className="font-bold text-slate-900">
-                    {part.slice(2, -2)}
-                  </strong>
-                );
-              }
-              return <span key={i}>{part}</span>;
-            })}
+          <div className="flex-1 flex-wrap">
+            {renderTextWithCitations(bulletContent, bulletContent, onOpenCitation)}
           </div>
         </div>
       );
@@ -70,44 +129,24 @@ function renderFormattedText(text) {
       const match = trimmed.match(/^(\d+)\.\s+(.*)/);
       const num = match ? match[1] : '1';
       const listContent = match ? match[2] : trimmed;
-      const parts = listContent.split(/(\*\*[^*]+\*\*)/g);
       return (
         <div key={lineIdx} className="flex items-start gap-2 ml-2 my-1 text-xs leading-relaxed text-slate-700">
           <span className="text-teal-700 font-bold text-[11px] select-none">{num}.</span>
-          <div>
-            {parts.map((part, i) => {
-              if (part.startsWith('**') && part.endsWith('**')) {
-                return (
-                  <strong key={i} className="font-bold text-slate-900">
-                    {part.slice(2, -2)}
-                  </strong>
-                );
-              }
-              return <span key={i}>{part}</span>;
-            })}
+          <div className="flex-1 flex-wrap">
+            {renderTextWithCitations(listContent, listContent, onOpenCitation)}
           </div>
         </div>
       );
     }
 
-    // Standard paragraph with bold formatting
+    // Standard paragraph with bold formatting & citations
     if (!trimmed) {
       return <div key={lineIdx} className="h-1.5" />;
     }
 
-    const parts = line.split(/(\*\*[^*]+\*\*)/g);
     return (
       <p key={lineIdx} className="text-xs sm:text-[13px] leading-relaxed text-slate-800 my-1">
-        {parts.map((part, i) => {
-          if (part.startsWith('**') && part.endsWith('**')) {
-            return (
-              <strong key={i} className="font-bold text-slate-900">
-                {part.slice(2, -2)}
-              </strong>
-            );
-          }
-          return <span key={i}>{part}</span>;
-        })}
+        {renderTextWithCitations(line, line, onOpenCitation)}
       </p>
     );
   });
@@ -180,37 +219,51 @@ export default function AskMedBot({
   const activePrescription = uploads.find((u) => u.id === selectedUploadId) || uploads[0] || null;
   const [analysis, setAnalysis] = useState(null);
 
-  // Chat conversation state initialized from patient's actual uploaded records
-  const [messages, setMessages] = useState(() => {
-    const records = uploads && uploads.length > 0 ? uploads : [];
-    if (records.length > 0) {
-      const list = records
-        .map(
-          (r) =>
-            `• 📄 **${r.title || r.description}** — **${
-              r.doctorName ? (r.doctorName.startsWith('Dr') ? r.doctorName : `Dr. ${r.doctorName}`) : 'Consulting Doctor'
-            }** (${r.category || 'Clinical Care'}, ${r.date || 'Recent'})`
-        )
-        .join('\n');
+  // Citation document viewer modal state
+  const [activeCitation, setActiveCitation] = useState(null);
+  const [citationRecord, setCitationRecord] = useState(null);
 
-      return [
-        {
-          id: 'welcome-1',
-          role: 'assistant',
-          status: 'grounded',
-          engine: 'Qwen 2.5 7B AI Agent',
-          text: `Hi! I am **MedBot**, your database-grounded clinical assistant powered by **Qwen 2.5 7B Instruct** 😊\n\nI have reviewed and indexed your uploaded medical reports:\n\n${list}\n\nAsk me anything about these reports, including **who your attending doctors are**, **the diagnosed problems**, **what medicines were prescribed**, or **how to take each medicine**!`,
-          suggestedFollowUps: [
-            'Who is my doctor?',
-            'What are the problems in my report?',
-            'Explain my report and prescribed medicines',
-            'When should I take my medicines?',
-          ],
-          citedMedications: ['Neuron', 'Neargon LG', 'Neo'],
-        },
-      ];
+  useEffect(() => {
+    if (!activeCitation?.docId) {
+      setCitationRecord(null);
+      return;
     }
+    const found = uploads.find(
+      (u) =>
+        u.id === activeCitation.docId ||
+        (activeCitation.docId &&
+          u.id &&
+          (u.id.includes(activeCitation.docId) || activeCitation.docId.includes(u.id)))
+    );
+    if (found) {
+      setCitationRecord(found);
+    } else {
+      supabase
+        .from('medical_records')
+        .select('*')
+        .eq('id', activeCitation.docId)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data) {
+            setCitationRecord({
+              id: data.id,
+              patientId: data.patient_id,
+              title: data.title,
+              description: data.description,
+              doctorName: data.doctor_name,
+              category: data.category,
+              date: data.date,
+              status: data.status,
+              files: data.files || [],
+              ocrData: data.ocr_data,
+            });
+          }
+        });
+    }
+  }, [activeCitation, uploads]);
 
+  // Chat conversation state initialized cleanly without messy document list
+  const [messages, setMessages] = useState(() => {
     return [
       {
         id: 'welcome-1',
@@ -219,12 +272,6 @@ export default function AskMedBot({
         engine: 'Qwen 2.5 7B AI Agent',
         text:
           'Hi! I am **MedBot**, your clinical AI assistant powered by **Qwen 2.5 7B Instruct** 😊\n\nI analyze your uploaded medical reports, doctor instructions, and prescribed medications in plain English.\n\nAsk me anything about your prescriptions or health routine!',
-        suggestedFollowUps: [
-          'Who is my doctor?',
-          'What are the problems in my report?',
-          'Explain my report and prescribed medicines',
-          'When should I take my medicines?',
-        ],
         citedMedications: [],
       },
     ];
@@ -276,13 +323,7 @@ export default function AskMedBot({
         status: 'grounded',
         engine: `Qwen 2.5 7B AI Agent (${aiModel.split('/').pop()})`,
         text:
-          'Chat reset! I am **MedBot** (Model: **Qwen 2.5 7B Instruct**) 😊\n\nI have your uploaded reports indexed (including Dr. Sudarshan Bhat and Dr. Neelkanta). Ask me anything about your doctor names, diagnosed problems, or prescribed medicines!',
-        suggestedFollowUps: [
-          'Who is my doctor?',
-          'What are the problems in my report?',
-          'Explain my report and prescribed medicines',
-          'When should I take my medicines?',
-        ],
+          'Chat reset! I am **MedBot** (Model: **Qwen 2.5 7B Instruct**) 😊\n\nI analyze your uploaded medical reports, doctor instructions, and prescribed medications in plain English.\n\nAsk me anything about your doctor names, diagnosed problems, or prescribed medicines!',
       },
     ]);
   };
@@ -366,9 +407,9 @@ export default function AskMedBot({
   const handleNavClick = (link) => {
     if (link === 'Home') setPage('landing');
     else if (link === 'My Uploads') setPage('my-uploads');
-    else if (link === 'Access QR') setPage('dashboard');
+    else if (link === 'Access QR') setPage('access-qr');
     else if (link === 'Ask MedBot') setPage('medbot');
-    else if (link === 'About Us') setPage('landing');
+    else if (link === 'About Us') setPage('about-us');
     setMenuOpen(false);
   };
 
@@ -389,12 +430,7 @@ export default function AskMedBot({
             >
               <span className="text-white font-black text-sm">Dr.</span>
             </button>
-            <div>
-              <div className="text-white font-bold text-base leading-tight">OnePatient</div>
-              <div className="text-teal-300 text-[10px] font-medium leading-tight">
-                Ask MedBot Clinical AI Assistant
-              </div>
-            </div>
+            <div className="text-white font-bold text-lg leading-tight">Hola</div>
           </div>
 
           {/* Desktop Navigation */}
@@ -503,117 +539,7 @@ export default function AskMedBot({
               </div>
             </div>
 
-            {/* Model Settings & Clear Controls */}
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowAiConfig((v) => !v)}
-                className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-teal-100 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-white/15"
-                title="View / Change specified AI model and API keys"
-              >
-                <Icon name="tune" className="text-base text-teal-300" />
-                <span className="hidden sm:inline">Model Settings</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleClearChat}
-                className="px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-teal-200 hover:text-white text-xs font-semibold flex items-center gap-1 transition-colors border border-white/15"
-                title="Start a new chat consultation"
-              >
-                <Icon name="refresh" className="text-base" />
-                <span className="hidden sm:inline">Reset</span>
-              </button>
-            </div>
           </div>
-
-          {/* Model Specification & API Configuration Overlay */}
-          {showAiConfig && (
-            <div className="bg-slate-50 border-b border-teal-200 p-4 animate-in slide-in-from-top-2">
-              <form onSubmit={handleSaveAiConfig} className="space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                  <div className="flex items-center gap-2">
-                    <Icon name="psychology" className="text-teal-700 text-lg" />
-                    <span className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">
-                      Specified AI Model Configuration
-                    </span>
-                  </div>
-                  <span className="text-[11px] text-teal-800 font-bold bg-teal-100 px-2.5 py-0.5 rounded-full">
-                    Active: {modelDisplayName}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                      Model Preset
-                    </label>
-                    <select
-                      value={providerPreset}
-                      onChange={(e) => handlePresetChange(e.target.value)}
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    >
-                      {QWEN_PRESETS.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                      Model Identifier
-                    </label>
-                    <input
-                      type="text"
-                      value={aiModel}
-                      onChange={(e) => setAiModel(e.target.value)}
-                      placeholder="qwen/qwen-2.5-7b-instruct"
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                      API Key (Saved in browser storage)
-                    </label>
-                    <input
-                      type="password"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder={
-                        QWEN_PRESETS.find((p) => p.id === providerPreset)?.keyPlaceholder ||
-                        'Optional for built-in high-IQ clinical reasoning'
-                      }
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-2 pt-1">
-                  <span className="text-[11px] text-slate-500">
-                    Supports Qwen 2.5 7B, OpenRouter, Hugging Face, or local Ollama. MedBot uses intelligent clinical AI reasoning for all health queries.
-                  </span>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                      type="submit"
-                      className="teal-gradient-btn text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm"
-                    >
-                      Save Configuration
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowAiConfig(false)}
-                      className="px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              </form>
-            </div>
-          )}
 
           {/* ── CHAT MESSAGE STREAM ── */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 bg-[#faf8ff]/50">
@@ -649,8 +575,41 @@ export default function AskMedBot({
                           {msg.engine || 'Qwen 2.5 7B AI Agent'}
                         </span>
                         {msg.toolsUsed?.length > 0 && (
-                          <span className="text-[10px] font-semibold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
-                            SQL: {msg.toolsUsed.join(', ')}
+                          <span className="text-[10px] font-semibold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200 flex items-center gap-1 flex-wrap">
+                            <span>SQL:</span>
+                            {msg.toolsUsed.map((tool, tIdx) => {
+                              const match = tool.match(/(?:Document\s+)?([a-zA-Z0-9_\-]+)/i);
+                              const isDoc =
+                                tool.toLowerCase().includes('document') || tool.startsWith('upload-');
+                              if (isDoc && match) {
+                                const docId = match[1];
+                                return (
+                                  <button
+                                    key={tIdx}
+                                    type="button"
+                                    onClick={() =>
+                                      setActiveCitation({
+                                        docId,
+                                        pageNumber: '1',
+                                        snippet: `Prescription Record (${docId})`,
+                                        citationText: tool,
+                                      })
+                                    }
+                                    className="text-blue-600 underline font-bold hover:text-blue-800 cursor-pointer"
+                                    title={`Click to view source document ${docId}`}
+                                  >
+                                    {tool}
+                                    {tIdx < msg.toolsUsed.length - 1 ? ', ' : ''}
+                                  </button>
+                                );
+                              }
+                              return (
+                                <span key={tIdx}>
+                                  {tool}
+                                  {tIdx < msg.toolsUsed.length - 1 ? ', ' : ''}
+                                </span>
+                              );
+                            })}
                           </span>
                         )}
                       </div>
@@ -669,9 +628,9 @@ export default function AskMedBot({
                       )}
                     </div>
 
-                    {/* AI Message Body formatted with rich Markdown */}
+                    {/* AI Message Body formatted with rich Markdown & clickable blue citation links */}
                     <div className="space-y-1">
-                      {renderFormattedText(msg.text)}
+                      {renderFormattedText(msg.text, (cit) => setActiveCitation(cit))}
                     </div>
 
                     {/* Inline Reminder Proposal (if requested) */}
@@ -702,25 +661,6 @@ export default function AskMedBot({
                             + Set Reminder
                           </button>
                         )}
-                      </div>
-                    )}
-
-                    {/* Interactive Follow-up Suggestion Chips */}
-                    {msg.suggestedFollowUps?.length > 0 && (
-                      <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">
-                          Clarification Follow-ups:
-                        </span>
-                        {msg.suggestedFollowUps.map((q, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() => handleSendMessage(q)}
-                            className="text-[11px] font-semibold px-3 py-1 rounded-full bg-slate-100 hover:bg-teal-50 hover:text-teal-900 hover:border-teal-300 text-slate-700 border border-slate-200 transition-colors"
-                          >
-                            {q}
-                          </button>
-                        ))}
                       </div>
                     )}
                   </div>
@@ -805,6 +745,143 @@ export default function AskMedBot({
           </div>
         </div>
       </main>
+
+      {/* ── CITED DOCUMENT VERIFICATION MODAL ── */}
+      {activeCitation && (() => {
+        const resolvedCitationRecord =
+          citationRecord ||
+          uploads.find(
+            (u) =>
+              u.id === activeCitation?.docId ||
+              (activeCitation?.docId &&
+                u.id &&
+                (u.id.includes(activeCitation.docId) || activeCitation.docId.includes(u.id)))
+          ) ||
+          activePrescription;
+
+        const citationFiles =
+          resolvedCitationRecord?.files && resolvedCitationRecord.files.length > 0
+            ? resolvedCitationRecord.files
+            : [];
+
+        const currentCitationFile = citationFiles[0] || {
+          name: 'Prescription Document',
+          url: '/uploads/prescription-default.jpeg',
+          dataUrl: '/uploads/prescription-default.jpeg',
+        };
+
+        const citationFileSource =
+          currentCitationFile.dataUrl || currentCitationFile.url || '/uploads/prescription-default.jpeg';
+
+        const isCitationPdf =
+          currentCitationFile.type === 'application/pdf' ||
+          (typeof currentCitationFile.name === 'string' &&
+            currentCitationFile.name.toLowerCase().endsWith('.pdf')) ||
+          (typeof citationFileSource === 'string' &&
+            citationFileSource.startsWith('data:application/pdf'));
+
+        return (
+          <div
+            className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto animate-in fade-in duration-200"
+            onClick={() => setActiveCitation(null)}
+          >
+            <div
+              className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full p-5 sm:p-6 my-auto relative border border-slate-200 max-h-[94vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Top Navigation Bar with Return Arrow */}
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-3 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setActiveCitation(null)}
+                  className="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-md flex items-center gap-2 transition-all group"
+                  title="Return to MedBot Chat"
+                >
+                  <Icon
+                    name="arrow_back"
+                    className="text-base text-teal-300 group-hover:-translate-x-1 transition-transform"
+                  />
+                  <span>Return to MedBot Chat</span>
+                </button>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-3 py-1 rounded-full bg-teal-50 border border-teal-200 text-teal-900 text-xs font-bold flex items-center gap-1.5">
+                    <Icon name="description" className="text-sm text-teal-700" />
+                    <span>Document: {activeCitation.docId}</span>
+                  </span>
+                  <span className="px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold">
+                    Page {activeCitation.pageNumber || 1}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveCitation(null)}
+                  className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors"
+                  title="Close Document View"
+                >
+                  <Icon name="close" className="text-lg" />
+                </button>
+              </div>
+
+              {/* Cited Finding Spotlight with Prominent Underline */}
+              <div className="mt-3 bg-gradient-to-r from-amber-50 to-orange-50/70 border border-amber-200 rounded-2xl p-3.5 shadow-2xs">
+                <div className="flex items-center gap-2 text-amber-900 text-[11px] font-extrabold uppercase tracking-wider mb-1">
+                  <Icon name="verified" className="text-amber-700 text-base" />
+                  <span>Cited Source Finding from this Document:</span>
+                </div>
+                <div className="bg-white/95 rounded-xl p-3 border border-amber-200/80 shadow-2xs">
+                  <span className="text-sm sm:text-base font-extrabold text-slate-950 underline decoration-blue-600 decoration-3 underline-offset-4 bg-amber-200/60 px-2.5 py-1 rounded inline-block">
+                    {activeCitation.snippet}
+                  </span>
+                </div>
+                <div className="mt-2 text-[11px] text-amber-900/80 font-medium flex items-center gap-2">
+                  <Icon name="info" className="text-xs text-amber-700" />
+                  <span>
+                    Referenced in <strong>{resolvedCitationRecord?.title || 'Prescription Document'}</strong>
+                    {resolvedCitationRecord?.doctorName ? ` by ${resolvedCitationRecord.doctorName}` : ''} • Page {activeCitation.pageNumber || 1}
+                  </span>
+                </div>
+              </div>
+
+              {/* Centered Document View (Image / PDF) */}
+              <div className="mt-3 flex-1 overflow-auto bg-slate-100/90 rounded-2xl p-3 sm:p-4 flex flex-col items-center justify-center border border-slate-200 min-h-[46vh]">
+                {isCitationPdf ? (
+                  <iframe
+                    src={citationFileSource}
+                    title="Cited Medical Document"
+                    className="w-full h-[56vh] rounded-xl shadow-md bg-white border border-slate-200"
+                  />
+                ) : (
+                  <div className="relative max-w-full flex flex-col items-center">
+                    <img
+                      src={citationFileSource}
+                      alt="Source Medical Document"
+                      className="max-h-[56vh] max-w-full w-auto object-contain rounded-xl shadow-md bg-white border border-slate-200 p-2"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom Return Footer */}
+              <div className="mt-3 flex items-center justify-between text-xs text-slate-500 pt-1">
+                <span className="flex items-center gap-1">
+                  <Icon name="verified_user" className="text-teal-700 text-sm" />
+                  <span>Authentic Uploaded Record • Stored in Database</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveCitation(null)}
+                  className="text-teal-800 hover:text-teal-950 font-bold underline cursor-pointer text-xs flex items-center gap-1"
+                >
+                  <Icon name="arrow_back" className="text-xs" />
+                  <span>Back to MedBot</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

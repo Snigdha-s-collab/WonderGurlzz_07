@@ -14,7 +14,6 @@ export default function LandingPage({
   currentUser,
   onLogout,
   onOpenUploadModal,
-  onOpenPrescriptionModal,
   notifications = [],
   reminders = [],
   onMarkTaken,
@@ -35,10 +34,7 @@ export default function LandingPage({
             <div className="w-10 h-10 rounded-full teal-gradient-btn flex items-center justify-center shadow-orb-glow">
               <span className="text-white font-black text-sm">Dr.</span>
             </div>
-            <div>
-              <div className="text-white font-bold text-base leading-tight">OnePatient</div>
-              <div className="text-teal-300 text-[10px] font-medium leading-tight">Unified Health Ledger</div>
-            </div>
+            <div className="text-white font-bold text-lg leading-tight">Hola</div>
           </div>
 
           {/* Desktop Nav */}
@@ -202,37 +198,13 @@ export default function LandingPage({
               Bring your prescriptions, lab reports, scans, and medical history together in one secure platform. Find important health information easily, understand your medical journey, and keep your records organised whenever you need them.
             </p>
 
-            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 sm:gap-4">
-              {/* Button 1: Upload Prescription */}
-              <button
-                type="button"
-                onClick={onOpenPrescriptionModal}
-                className="inline-flex items-center gap-2 teal-gradient-btn text-white font-bold px-5 sm:px-6 py-3.5 rounded-full text-sm shadow-pill-glow hover:scale-105 transition-transform"
-              >
-                <Icon name="prescriptions" className="text-lg sm:text-xl text-white" />
-                <span>Upload Prescription</span>
-              </button>
-
-              {/* Button 2: Upload Medical Documents */}
-              <button
-                type="button"
-                onClick={onOpenUploadModal}
-                className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold px-5 sm:px-6 py-3.5 rounded-full text-sm transition-all hover:scale-105"
-              >
-                <Icon name="description" className="text-lg sm:text-xl text-teal-300" />
-                <span>Upload Medical Documents</span>
-              </button>
-
-              {/* Button 3: View Current Medications */}
-              <button
-                type="button"
-                onClick={() => onNavigate && onNavigate('my-uploads')}
-                className="inline-flex items-center gap-2 bg-teal-950/80 hover:bg-teal-900 border border-teal-500/40 text-teal-200 font-bold px-5 sm:px-6 py-3.5 rounded-full text-sm transition-all hover:scale-105"
-              >
-                <Icon name="medication" className="text-lg sm:text-xl text-teal-400" />
-                <span>View Current Medications</span>
-              </button>
-            </div>
+            <button
+              onClick={onOpenUploadModal}
+              className="inline-flex items-center gap-2 teal-gradient-btn text-white font-bold px-8 py-4 rounded-full text-base shadow-pill-glow hover:scale-105 transition-transform"
+            >
+              <Icon name="upload" className="text-xl" />
+              Upload
+            </button>
           </div>
 
           {/* Right image */}

@@ -29,51 +29,34 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
     return today.toISOString().split('T')[0];
   });
   const [selectedFiles, setSelectedFiles] = useState([]);
-  const [isDragging, setIsDragging] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [error, setError] = useState('');
-
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Prevent browser from navigating away if a file is dropped outside the drop zone
+  // Prevent browser window from navigating away when dropping files anywhere on page
   useEffect(() => {
-    if (!isOpen) return;
-
-    const preventDefaultDragDrop = (e) => {
+    const preventWindowDrop = (e) => {
       e.preventDefault();
-      e.stopPropagation();
     };
-
-    window.addEventListener('dragover', preventDefaultDragDrop);
-    window.addEventListener('drop', preventDefaultDragDrop);
-
+    window.addEventListener('dragover', preventWindowDrop);
+    window.addEventListener('drop', preventWindowDrop);
     return () => {
-      window.removeEventListener('dragover', preventDefaultDragDrop);
-      window.removeEventListener('drop', preventDefaultDragDrop);
+      window.removeEventListener('dragover', preventWindowDrop);
+      window.removeEventListener('drop', preventWindowDrop);
     };
-  }, [isOpen]);
+  }, []);
 
   if (!isOpen) return null;
 
-  const addFiles = (files) => {
-    if (!files || files.length === 0) return;
-    setSelectedFiles((prev) => [...prev, ...files]);
+  const addFiles = (newFiles) => {
+    if (!newFiles || newFiles.length === 0) return;
+    setSelectedFiles((prev) => [...prev, ...newFiles]);
     setError('');
 
-    // If title is empty, prefill a clean readable title from the first file name
-    setTitle((prevTitle) => {
-      if (prevTitle && prevTitle.trim()) return prevTitle;
-      const firstName = files[0]?.name || '';
-      if (!firstName) return prevTitle;
-      return firstName
-        .replace(/\.[^/.]+$/, '')
-        .replace(/[-_]/g, ' ')
-        .trim();
-    });
-
     // Read plain text prescription files so Ask MedBot can analyze them automatically
-    files.forEach((file) => {
+    newFiles.forEach((file) => {
       if (file.type?.startsWith('text/') || /\.(txt|md|csv)$/i.test(file.name)) {
         const reader = new FileReader();
         reader.onload = () => {
@@ -90,28 +73,20 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
     addFiles(files);
-    // Reset input so selecting the same file again triggers onChange
     if (e.target) {
       e.target.value = '';
     }
   };
 
-  const handleDragEnter = (e) => {
+  const handleDragOver = (e) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(true);
   };
 
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!isDragging) setIsDragging(true);
-  };
-
   const handleDragLeave = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.currentTarget.contains(e.relatedTarget)) return;
     setIsDragging(false);
   };
 
@@ -119,11 +94,8 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-
-    const droppedFiles = Array.from(e.dataTransfer?.files || []);
-    if (droppedFiles.length > 0) {
-      addFiles(droppedFiles);
-    }
+    const files = Array.from(e.dataTransfer?.files || []);
+    addFiles(files);
   };
 
   const handleRemoveFile = (index) => {
@@ -150,7 +122,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
     }
 
     setIsSubmitting(true);
-    setStatusText('Reading file data...');
+    setStatusText('Processing document...');
 
     const readFileAsDataUrl = (file) => {
       return new Promise((resolve) => {
@@ -176,7 +148,11 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
     Promise.all(
       selectedFiles.map(async (f) => {
         let dataUrl = '';
-        if (f.type?.startsWith('image/') || f.name?.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
+        if (
+          f.type?.startsWith('image/') ||
+          f.type?.includes('pdf') ||
+          f.name?.match(/\.(jpg|jpeg|png|webp|gif|pdf)$/i)
+        ) {
           dataUrl = await readFileAsDataUrl(f);
         }
         return {
@@ -187,36 +163,27 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
           url: dataUrl,
         };
       })
-    ).then(async (processedFiles) => {
-      const primaryImage = processedFiles.find(
-        (f) => f.dataUrl && (f.dataUrl.startsWith('data:image/') || f.name.match(/\.(jpg|jpeg|png|webp)$/i))
-      );
-
-      let extractedOcr = null;
-      if (primaryImage && primaryImage.dataUrl) {
-        setStatusText('Analyzing with Qwen2.5-VL-7B-Instruct...');
-        try {
-          const apiRes = await fetch('http://127.0.0.1:8000/api/ocr/analyze', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              image_base64: primaryImage.dataUrl,
-              document_hint: category || title,
-            }),
-          });
-          if (apiRes.ok) {
-            extractedOcr = await apiRes.json();
-          } else {
-            console.warn('FastAPI OCR service response status:', apiRes.status);
+    ).then((processedFiles) => {
+      // Resolve the real name entered during sign up
+      let uploaderName = currentUser?.name;
+      try {
+        const rawUsers = localStorage.getItem('onepatient_users');
+        if (rawUsers) {
+          const users = JSON.parse(rawUsers);
+          const targetId = (currentUser?.permanentId || 'NNM24cc059').toLowerCase();
+          const matched = users.find(
+            (u) => u.permanentId && u.permanentId.toLowerCase() === targetId
+          );
+          if (matched?.name) {
+            uploaderName = matched.name.trim();
           }
-        } catch (apiErr) {
-          console.warn('FastAPI backend connection notice (upload proceeding safely):', apiErr.message);
         }
-      }
+      } catch (_) {}
 
       const newRecord = {
         id: 'upload-' + Date.now(),
         patientId: currentUser?.permanentId || 'NNM24cc059',
+        uploaderName: uploaderName || currentUser?.name || 'User',
         title: title.trim(),
         description: title.trim(),
         doctorName: doctorName.trim(),
@@ -227,8 +194,8 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
         time: formattedTime,
         timestamp: `${formattedDate} • ${formattedTime}`,
         files: processedFiles,
-        status: 'Cryptographically Verified',
-        ocrData: extractedOcr,
+        status: 'Verified Record',
+        ocrData: null,
       };
 
       onUploadSuccess(newRecord);
@@ -249,11 +216,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
   };
 
   return (
-    <div
-      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-      onDrop={handleDrop}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn"
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
       <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 max-h-[92vh] flex flex-col">
         
         {/* Header */}
@@ -264,7 +227,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
             </div>
             <div>
               <h2 className="text-base font-bold leading-tight">Upload Health Records</h2>
-              <p className="text-[11px] text-teal-300">Secure cryptographic notarization</p>
+              <p className="text-[11px] text-teal-300">Secure record storage</p>
             </div>
           </div>
           <button
@@ -382,14 +345,14 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
               Browse / Upload Files <span className="text-red-500">*</span>
             </label>
             <div
-              onDragEnter={handleDragEnter}
               onDragOver={handleDragOver}
+              onDragEnter={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className={`flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-6 cursor-pointer transition-all select-none group ${
+              className={`flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-5 cursor-pointer transition-all group ${
                 isDragging
-                  ? 'border-teal-500 bg-teal-100/90 scale-[1.01] ring-4 ring-teal-400/30'
+                  ? 'border-teal-500 bg-teal-100/60 ring-2 ring-teal-400'
                   : 'border-teal-300 hover:border-teal-500 bg-teal-50/40 hover:bg-teal-50/70'
               }`}
             >
@@ -399,17 +362,14 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
                 multiple
                 accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.txt,.md"
                 onChange={handleFileChange}
+                onClick={(e) => e.stopPropagation()}
                 className="hidden"
               />
-              <div
-                className={`w-12 h-12 rounded-full flex items-center justify-center mb-2 transition-transform group-hover:scale-105 ${
-                  isDragging ? 'bg-teal-600 text-white scale-110' : 'bg-teal-100 text-teal-800'
-                }`}
-              >
-                <Icon name={isDragging ? 'download' : 'cloud_upload'} className="text-2xl" />
+              <div className="w-12 h-12 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
+                <Icon name="cloud_upload" className="text-2xl" />
               </div>
               <p className="text-xs font-bold text-slate-800">
-                {isDragging ? 'Drop your files here to attach' : 'Click to browse or drag files here'}
+                Click to browse or drag files here
               </p>
               <p className="text-[11px] text-slate-500 mt-0.5">
                 PDF, JPG, PNG or DOCX (Max 25MB each)

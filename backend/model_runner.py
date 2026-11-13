@@ -12,7 +12,7 @@ import base64
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 
 import httpx
 from PIL import Image
@@ -545,14 +545,7 @@ async def analyze_medical_document(
             except Exception as v_err:
                 logger.warning("Medicine verification step failed: %s", v_err)
 
-        # Enforce metadata stamps and clean safety outputs
-        parsed_dict["unreadable_items"] = []
-        if rx_data and "medicines" in rx_data:
-            rx_data["medicines"] = [
-                m for m in rx_data["medicines"]
-                if m.get("name")
-                and not any(bad in str(m.get("name", "")).lower() for bad in ["readable", "illegible", "uncertain", "unknown", "null", "none"])
-            ]
+        # Enforce metadata stamps
         parsed_dict["processed_at"] = datetime.now(timezone.utc).isoformat()
         parsed_dict["model_name"] = INFERENCE_MODEL
         parsed_dict["needs_human_verification"] = True

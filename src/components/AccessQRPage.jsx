@@ -116,10 +116,7 @@ export default function AccessQRPage({ setPage, currentUser, onLogout }) {
             >
               <span className="text-white font-black text-sm">Dr.</span>
             </button>
-            <div>
-              <div className="text-white font-bold text-base leading-tight">OnePatient</div>
-              <div className="text-teal-300 text-[10px] font-medium leading-tight">Temporary QR Access</div>
-            </div>
+            <div className="text-white font-bold text-lg leading-tight">Hola</div>
           </div>
 
           {/* Nav pills */}
@@ -132,9 +129,7 @@ export default function AccessQRPage({ setPage, currentUser, onLogout }) {
                   else if (link === 'My Uploads') setPage('my-uploads');
                   else if (link === 'Access QR') setPage('access-qr');
                   else if (link === 'About Us') setPage('about-us');
-                  else if (link === 'Ask MedBot') {
-                    alert('Ask MedBot AI: You can consult regarding your uploaded prescriptions and health history.');
-                  }
+                  else if (link === 'Ask MedBot') setPage('medbot');
                 }}
                 className={`text-sm font-medium transition-colors ${
                   link === 'Access QR' ? 'text-teal-300 font-bold' : 'text-white/80 hover:text-teal-300'
@@ -216,15 +211,11 @@ export default function AccessQRPage({ setPage, currentUser, onLogout }) {
           /* STATE 2: Displaying Dynamic, Real Scannable QR */
           <div className="max-w-md w-full bg-white rounded-3xl p-6 sm:p-8 shadow-card-glass border border-slate-100 text-center space-y-5 animate-fadeIn">
             
-            {/* Top Timer status */}
-            <div className="flex items-center justify-between">
-              <span className="px-3 py-1 rounded-full bg-teal-50 text-teal-800 text-[11px] font-bold border border-teal-200">
-                Single-Use Token
-              </span>
-              <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-amber-600">
-                <Icon name="timer" className="text-sm animate-pulse" />
-                <span>Refreshes in {formatTimer(timeLeft)}</span>
-              </div>
+            {/* Top Center: Statement */}
+            <div className="text-center">
+              <h2 className="text-xl font-extrabold text-[#00241f] tracking-tight">
+                Scan the QR
+              </h2>
             </div>
 
             {/* Real Scannable QR Code */}
@@ -240,40 +231,19 @@ export default function AccessQRPage({ setPage, currentUser, onLogout }) {
 
             {/* Instructions */}
             <div>
-              <h2 className="text-lg font-bold text-[#00241f]">
+              <h3 className="text-base font-bold text-[#00241f]">
                 Present this to your Doctor
-              </h2>
+              </h3>
               <p className="text-xs text-slate-500 mt-1">
                 Any smartphone or doctor portal camera can scan this QR code directly to enter the Doctor Review page.
               </p>
             </div>
 
-            {/* Unique Token Hex Badge */}
-            <div className="bg-slate-50 rounded-xl px-3 py-2 border border-slate-200/80 text-left space-y-1">
-              <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                <span>Unique Session Token</span>
-                <span className="text-teal-700 font-mono">2 Min Expiry</span>
-              </div>
-              <p className="font-mono text-xs text-slate-800 truncate select-all">
-                {tokenInfo?.token}
-              </p>
-            </div>
-
-            {/* Direct Doctor Link Simulator */}
-            <div className="pt-1 flex flex-col sm:flex-row gap-2">
-              <button
-                onClick={() => {
-                  window.location.hash = `doctor-portal?token=${tokenInfo?.token}&patient=${encodeURIComponent(currentUser?.name || 'Eleanor Vance')}`;
-                }}
-                className="flex-1 teal-gradient-btn text-white font-bold py-2.5 px-3 rounded-xl text-xs shadow-pill-glow flex items-center justify-center gap-1.5 hover:opacity-90"
-              >
-                <Icon name="medical_services" className="text-base" />
-                <span>Open Doctor View (Simulate Scan)</span>
-              </button>
-
+            {/* Copy Scan Link */}
+            <div className="pt-1 flex justify-center">
               <button
                 onClick={handleCopyLink}
-                className="py-2.5 px-3 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold text-xs flex items-center justify-center gap-1"
+                className="w-full py-2.5 px-3 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold text-xs flex items-center justify-center gap-1"
                 title="Copy the scan URL to test on your phone or another tab"
               >
                 <Icon name={copiedLink ? 'done' : 'link'} className="text-base" />

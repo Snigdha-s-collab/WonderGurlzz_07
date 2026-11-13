@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import NotificationBell from './NotificationBell';
-import DocumentSplitViewer from './DocumentSplitViewer';
+import DocumentDetailModal from './DocumentDetailModal';
 
 function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
@@ -192,10 +192,7 @@ export default function MyUploads({
             >
               <span className="text-white font-black text-sm">Dr.</span>
             </button>
-            <div>
-              <div className="text-white font-bold text-base leading-tight">OnePatient</div>
-              <div className="text-teal-300 text-[10px] font-medium leading-tight">My Uploads Repository</div>
-            </div>
+            <div className="text-white font-bold text-lg leading-tight">Hola</div>
           </div>
 
           {/* Nav pills */}
@@ -230,13 +227,6 @@ export default function MyUploads({
               onTriggerTestReminder={onTriggerTestReminder}
               onOpenMedBot={() => (onOpenMedBot ? onOpenMedBot() : setPage('medbot'))}
             />
-            <button
-              onClick={onOpenUploadModal}
-              className="teal-gradient-btn text-white font-bold text-xs px-4 py-2 rounded-full shadow-pill-glow flex items-center gap-1.5 hover:opacity-90 active:scale-95 transition-all"
-            >
-              <Icon name="add" className="text-base" />
-              <span>Upload New</span>
-            </button>
 
             <div className="hidden sm:flex flex-col items-center">
               <div className="w-8 h-8 rounded-full teal-gradient-btn flex items-center justify-center text-white text-sm">
@@ -587,7 +577,7 @@ export default function MyUploads({
                 <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
                   <span className="flex items-center gap-1 text-[11px] font-semibold text-teal-700">
                     <Icon name="verified" className="text-xs text-teal-500" />
-                    <span>{item.status || 'Verified Record'}</span>
+                    <span>{item.status && !item.status.toLowerCase().includes('cryptograph') ? item.status : 'Verified Record'}</span>
                   </span>
                   <div className="flex items-center gap-2">
                     <button
@@ -602,7 +592,7 @@ export default function MyUploads({
                       onClick={() => setSelectedRecordForViewer(item)}
                       className="text-xs font-bold text-teal-800 hover:text-teal-600 hover:underline flex items-center gap-1"
                     >
-                      <span>View Details & OCR</span>
+                      <span>View Details</span>
                       <Icon name="arrow_forward" className="text-sm" />
                     </button>
                   </div>
@@ -613,15 +603,12 @@ export default function MyUploads({
         )}
       </main>
 
-      {/* Split Screen Document & Transformer-based OCR Viewer */}
+      {/* Centered Document Image/File Viewer Modal */}
       {selectedRecordForViewer && (
-        <DocumentSplitViewer
+        <DocumentDetailModal
           record={selectedRecordForViewer}
           onClose={() => setSelectedRecordForViewer(null)}
-          onRecordUpdated={(updated) => {
-            setSelectedRecordForViewer(updated);
-            if (onUpdateRecord) onUpdateRecord(updated);
-          }}
+          currentUser={currentUser}
         />
       )}
     </div>
