@@ -5,7 +5,7 @@ function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
 }
 
-export default function AuditTrail({ setPage }) {
+export default function AuditTrail({ setPage, onOpenUploadModal }) {
   const [filter, setFilter] = useState('all');
 
   const filteredLogs = auditLogs.filter((log) => {
@@ -140,18 +140,18 @@ export default function AuditTrail({ setPage }) {
             </button>
 
             <button
-              onClick={() => alert('Quick Record Scanner launched.')}
+              onClick={() => (onOpenUploadModal ? onOpenUploadModal() : setPage('my-uploads'))}
               className="w-12 h-12 -mt-5 rounded-full bg-teal-500 hover:bg-teal-400 text-teal-950 flex items-center justify-center shadow-lg active:scale-95 transition-transform"
             >
               <Icon name="add" className="text-2xl" />
             </button>
 
             <button
-              onClick={() => alert('OnePatient AI Clinical Assistant is ready.')}
+              onClick={() => setPage('medbot')}
               className="flex flex-col items-center gap-1 text-slate-500 hover:text-teal-700 transition-colors"
             >
               <Icon name="smart_toy" className="text-xl" />
-              <span className="text-[10px] font-semibold">AI Doctor</span>
+              <span className="text-[10px] font-semibold">Ask MedBot</span>
             </button>
 
             <button

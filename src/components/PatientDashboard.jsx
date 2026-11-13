@@ -5,7 +5,7 @@ function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
 }
 
-export default function PatientDashboard({ setPage }) {
+export default function PatientDashboard({ setPage, onOpenUploadModal }) {
   const [activeTab, setActiveTab] = useState('my-health');
   const [medList, setMedList] = useState(medications);
   const [consentList, setConsentList] = useState(consents);
@@ -243,18 +243,18 @@ export default function PatientDashboard({ setPage }) {
           {/* ── 3. QUICK ACTIONS ── */}
           <div className="grid grid-cols-2 gap-2">
             <button
-              onClick={() => alert('Opening Document Camera Scanner to capture and cryptographically notarize lab reports, prescriptions, or imaging scans.')}
+              onClick={() => (onOpenUploadModal ? onOpenUploadModal() : setPage('my-uploads'))}
               className="py-3 px-3 rounded-2xl bg-[#0b3b34] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-transform"
             >
               <Icon name="photo_camera" className="text-teal-300 text-base" />
               <span>+ Upload Records</span>
             </button>
             <button
-              onClick={() => alert('Clinical AI Assistant: Ask questions about your medications, doctor consultations, or blood tests.')}
+              onClick={() => setPage('medbot')}
               className="py-3 px-3 rounded-2xl bg-teal-100 text-teal-900 font-bold text-xs flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-transform"
             >
               <Icon name="smart_toy" className="text-teal-700 text-base" />
-              <span>Ask AI Assistant</span>
+              <span>Ask MedBot</span>
             </button>
           </div>
 
@@ -441,18 +441,18 @@ export default function PatientDashboard({ setPage }) {
 
             {/* Middle Upload circle */}
             <button
-              onClick={() => alert('Quick Record Scanner launched.')}
+              onClick={() => (onOpenUploadModal ? onOpenUploadModal() : setPage('my-uploads'))}
               className="w-12 h-12 -mt-5 rounded-full bg-teal-500 hover:bg-teal-400 text-teal-950 flex items-center justify-center shadow-lg active:scale-95 transition-transform"
             >
               <Icon name="add" className="text-2xl" />
             </button>
 
             <button
-              onClick={() => alert('OnePatient AI Clinical Assistant is ready.')}
+              onClick={() => setPage('medbot')}
               className="flex flex-col items-center gap-1 text-slate-500 hover:text-teal-700 transition-colors"
             >
               <Icon name="smart_toy" className="text-xl" />
-              <span className="text-[10px] font-semibold">AI Doctor</span>
+              <span className="text-[10px] font-semibold">Ask MedBot</span>
             </button>
 
             <button

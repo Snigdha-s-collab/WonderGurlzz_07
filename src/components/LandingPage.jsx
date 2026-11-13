@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
-import { navLinks, services } from '../data/patientData';
+import { navLinks } from '../data/patientData';
+import NotificationBell from './NotificationBell';
 
 const HERO_IMG = 'https://lh3.googleusercontent.com/aida-public/AB6AXuAHFpN5618twQEPwL_x11zHAa0yFdXqo05iBTIiE7dqPJhpYPvJL-GFk3B_FNFoYI-nfsej64aB4asNQ4e-88kbcFeTURksCa8JWhQHErEh69bOMU0-TxU6XSL-YybaiEmapm-tK9A97ESBt6TbPz15L7mLl3dEEfOcck0bEsRJTarElFjTKFdHpgL_k5QX5MpxdJXfI1tMJI07gVfki7SQX_cp_U9pSwFe3PGyrb3h';
 const CLINICIAN_IMG = 'https://lh3.googleusercontent.com/aida-public/AB6AXuCQp0liPoebipHAS2YNHYhi2kE6fUHb0fB43SfQ-pteJpJ1rEPCqWS1FJ40Y05ev_5Up8nKtCUVAGFsbNbjwbJmVcS1wbFIUHHiHFTH5ORv9cHgjdy-8YhdfI8pk6O2jzPdtFNTpmCYu2oM9xVnsYe8xXSJb7kf9CS9ASLTG35VumFZuTlxFUt8W0L1ktLst4_6_nuNataMnWFKgUeeXSqiqsEfKEvkVARPBYgNy6np';
@@ -8,7 +9,18 @@ function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
 }
 
-export default function LandingPage({ setPage, currentUser, onLogout, onOpenUploadModal }) {
+export default function LandingPage({
+  setPage,
+  currentUser,
+  onLogout,
+  onOpenUploadModal,
+  notifications = [],
+  reminders = [],
+  onMarkTaken,
+  onDismissNotification,
+  onTriggerTestReminder,
+  onOpenMedBot,
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
   const heroRef = useRef(null);
 
@@ -43,7 +55,7 @@ export default function LandingPage({ setPage, currentUser, onLogout, onOpenUplo
                   } else if (link === 'About Us') {
                     setPage('about-us');
                   } else if (link === 'Ask MedBot') {
-                    alert('Ask MedBot AI: You can consult regarding your uploaded prescriptions and health history.');
+                    onOpenMedBot ? onOpenMedBot() : setPage('medbot');
                   }
                 }}
                 className="text-white/80 hover:text-teal-300 text-sm font-medium transition-colors"
@@ -56,14 +68,14 @@ export default function LandingPage({ setPage, currentUser, onLogout, onOpenUplo
           {/* User Section & Notification in Right Corner */}
           <div className="hidden lg:flex items-center gap-4">
             {/* Notification Bell Icon */}
-            <button
-              onClick={() => alert('No new medical ledger alerts or sync notifications.')}
-              className="relative p-2 rounded-full text-white/80 hover:text-teal-300 hover:bg-white/10 transition-colors"
-              title="Notifications"
-            >
-              <Icon name="notifications" className="text-2xl" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
-            </button>
+            <NotificationBell
+              notifications={notifications}
+              reminders={reminders}
+              onMarkTaken={onMarkTaken}
+              onDismissNotification={onDismissNotification}
+              onTriggerTestReminder={onTriggerTestReminder}
+              onOpenMedBot={() => (onOpenMedBot ? onOpenMedBot() : setPage('medbot'))}
+            />
 
             {/* Profile Icon with User's Name Below */}
             <div className="flex flex-col items-center">
@@ -114,7 +126,7 @@ export default function LandingPage({ setPage, currentUser, onLogout, onOpenUplo
                   } else if (link === 'About Us') {
                     setPage('about-us');
                   } else if (link === 'Ask MedBot') {
-                    alert('Ask MedBot AI: You can consult regarding your uploaded prescriptions and health history.');
+                    onOpenMedBot ? onOpenMedBot() : setPage('medbot');
                   }
                   setMenuOpen(false);
                 }}
@@ -135,8 +147,12 @@ export default function LandingPage({ setPage, currentUser, onLogout, onOpenUplo
               </div>
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() => alert('No new notifications.')}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onOpenMedBot ? onOpenMedBot() : setPage('medbot');
+                  }}
                   className="p-1.5 rounded-full text-white/80 hover:text-teal-300"
+                  title="Medication Reminders"
                 >
                   <Icon name="notifications" className="text-xl" />
                 </button>
