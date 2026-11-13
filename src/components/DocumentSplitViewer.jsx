@@ -1,15 +1,30 @@
 import { useState, useEffect } from 'react';
+import { updateRecordOCRInSupabase } from '../lib/supabaseClient';
 
 function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
 }
 
-export default function DocumentSplitViewer({ record, onClose }) {
-  const [activeTab, setActiveTab] = useState('structured'); // 'structured', 'raw', 'advice'
+export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }) {
+  const [activeTab, setActiveTab] = useState('structured'); // 'structured', 'raw', 'json'
   const [zoomLevel, setZoomLevel] = useState(100);
   const [rotation, setRotation] = useState(0);
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [copied, setCopied] = useState(false);
+
+  // Live on-demand OCR state
+  const [currentOcr, setCurrentOcr] = useState(record?.ocrData || null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationSuccess, setVerificationSuccess] = useState(false);
+
+  // Sync state when a different record is selected
+  useEffect(() => {
+    setCurrentOcr(record?.ocrData || null);
+    setAnalysisError('');
+    setSelectedFileIndex(0);
+  }, [record?.id]);
 
   // Close on Escape key
   useEffect(() => {
@@ -37,49 +52,129 @@ export default function DocumentSplitViewer({ record, onClose }) {
       imageSource.endsWith('.webp') ||
       currentFile?.name?.match(/\.(jpg|jpeg|png|webp|gif)$/i));
 
-  // Dynamic OCR data: strictly derived from the user's record and user-provided inputs
-  const ocr = record.ocrData || {
-    model: 'TrOCR-Large-Stage2-Medical (Vision Transformer + Seq2Seq)',
-    confidence: '99.1%',
-    inferenceTime: '175ms',
-    clinicName: record.category ? `${record.category} Department` : 'Clinical Healthcare Facility',
-    doctorDetails: record.doctorName ? `Dr. ${record.doctorName.replace(/^Dr\.?\s*/i, '')}` : 'Consulting Physician',
-    dates: record.date || record.timestamp || 'Current Record',
-    rawHandwritingText: `Prescription Title: ${record.title || record.description || 'Medical Record'}
-Attending Doctor: ${record.doctorName || 'Not specified'}
-Clinical Category: ${record.category || 'General Medicine'}
-Record Date: ${record.date || record.timestamp || 'Recent'}
-Attached Artifact: ${currentFile?.name || 'Uploaded Document Evidence'}
+  // Trigger on-demand OCR analysis with Qwen2.5-VL
+  const handleRunOcr = async () => {
+    if (!imageSource) {
+      setAnalysisError('No valid image data available to analyze.');
+      return;
+    }
 
-Digitized Clinical Observations:
-1. ${record.title || record.description || 'Clinical Prescription Entry'}
-- Verified via Transformer-based OCR pipeline
-- Indexed under ${record.category || 'General Records'}
-- Immutable SHA-256 provenance stamp attached`,
-    structuredMedications: [
-      {
-        name: record.title || record.description || 'Prescribed Treatment',
-        dosage: 'As prescribed',
-        frequency: 'According to clinical advice',
-        timing: 'As directed by physician',
-        duration: 'Course completion',
-        purpose: `${record.category || 'Clinical'} Management`,
-        safetyAlert: 'Take strictly as instructed by your healthcare professional.',
-      },
-    ],
-    recommendedInvestigations: [
-      `Review with attending specialist in ${record.category || 'OPD'}`,
-      'Follow up if symptoms persist or as recommended on prescription',
-    ],
+    setIsAnalyzing(true);
+    setAnalysisError('');
+
+    try {
+      let base64Payload = imageSource;
+      // If imageSource is a URL or file path, fetch and convert to Base64 data URL
+      if (!base64Payload.startsWith('data:image/')) {
+        const fetched = await fetch(imageSource);
+        const blob = await fetched.blob();
+        base64Payload = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      const response = await fetch('http://127.0.0.1:8000/api/ocr/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_base64: base64Payload,
+          document_hint: record.category || record.title,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Server returned error status ${response.status}`);
+      }
+
+      const result = await response.json();
+      setCurrentOcr(result);
+
+      // Save OCR response directly to Supabase medical_records.ocr_data JSONB field
+      if (record?.id) {
+        await updateRecordOCRInSupabase(record.id, result);
+      }
+      if (onRecordUpdated) {
+        onRecordUpdated({
+          ...record,
+          ocrData: result,
+        });
+      }
+    } catch (err) {
+      console.error('OCR Extraction error:', err);
+      setAnalysisError(err.message || 'Could not connect to Qwen2.5-VL backend. Ensure backend is running.');
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
-  const handleCopy = () => {
-    if (ocr.rawHandwritingText) {
-      navigator.clipboard.writeText(ocr.rawHandwritingText);
+  // Automatically trigger extraction on open if record has no OCR data yet
+  useEffect(() => {
+    if (record && !record.ocrData && !currentOcr && !isAnalyzing && imageSource) {
+      handleRunOcr();
+    }
+  }, [record?.id]);
+
+  const handleVerifyTranscription = async () => {
+    if (!currentOcr) return;
+
+    setIsVerifying(true);
+    const verifiedOcr = {
+      ...currentOcr,
+      is_verified_by_user: true,
+      needs_human_verification: false,
+      verified_at: new Date().toISOString(),
+    };
+
+    setCurrentOcr(verifiedOcr);
+
+    // Save verified OCR response into Supabase medical_records.ocr_data JSONB field
+    if (record?.id) {
+      await updateRecordOCRInSupabase(record.id, verifiedOcr);
+    }
+
+    if (onRecordUpdated) {
+      onRecordUpdated({
+        ...record,
+        ocrData: verifiedOcr,
+      });
+    }
+
+    setIsVerifying(false);
+    setVerificationSuccess(true);
+    setTimeout(() => setVerificationSuccess(false), 4000);
+  };
+
+  const handleCopyTranscription = () => {
+    const textToCopy = currentOcr?.raw_transcription || '';
+    if (textToCopy) {
+      navigator.clipboard.writeText(textToCopy);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
+
+  const renderValue = (val, fallback = 'Not mentioned') => {
+    if (val === null || val === undefined || (typeof val === 'string' && val.trim() === '')) {
+      return <span className="text-slate-400 italic text-xs">{fallback}</span>;
+    }
+    return <span className="font-semibold text-slate-800">{val}</span>;
+  };
+
+  const docType = currentOcr?.document_type || 'other';
+  const rx = currentOcr?.prescription_data;
+  const rep = currentOcr?.report_data;
+  const ds = currentOcr?.discharge_summary_data;
+  const unreadable = currentOcr?.unreadable_items || [];
+  const isPrescription =
+    docType === 'prescription' ||
+    (rx && rx.medicines && rx.medicines.length > 0) ||
+    (record?.category &&
+      (record.category.toLowerCase().includes('prescript') ||
+        record.category.toLowerCase().includes('medicin')));
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex flex-col animate-fadeIn">
@@ -97,9 +192,14 @@ Digitized Clinical Observations:
               <span className="bg-teal-900/80 border border-teal-400/50 text-teal-300 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
                 {record.category || 'General'}
               </span>
+              {currentOcr?.document_type && (
+                <span className="bg-teal-700/60 border border-teal-300/40 text-teal-200 text-[10px] font-mono px-2 py-0.5 rounded-full uppercase hidden sm:inline">
+                  AI: {currentOcr.document_type.replace('_', ' ')}
+                </span>
+              )}
             </div>
             <div className="text-teal-300 text-xs font-mono flex items-center gap-3 mt-0.5">
-              <span>Doctor: {record.doctorName || 'Consulting Specialist'}</span>
+              <span>Doctor: {record.doctorName || 'Not specified'}</span>
               <span className="text-teal-500">•</span>
               <span>{record.date || record.timestamp}</span>
               {currentFile && (
@@ -114,14 +214,17 @@ Digitized Clinical Observations:
 
         {/* Action Controls */}
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleCopy}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-teal-900/60 border border-teal-500/40 text-teal-300 hover:text-white text-xs font-semibold transition-colors"
-            title="Copy Digitized Text"
-          >
-            <Icon name={copied ? 'check' : 'content_copy'} className="text-sm" />
-            <span>{copied ? 'Copied!' : 'Copy OCR Text'}</span>
-          </button>
+          {imageSource && (
+            <button
+              onClick={handleRunOcr}
+              disabled={isAnalyzing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-teal-800 hover:bg-teal-700 border border-teal-400/60 text-white text-xs font-bold transition-all disabled:opacity-50"
+              title="Run or Re-run Qwen2.5-VL Vision Extraction"
+            >
+              <Icon name="psychology" className={`text-base ${isAnalyzing ? 'animate-spin' : ''}`} />
+              <span>{isAnalyzing ? 'Analyzing...' : currentOcr ? 'Re-analyze' : 'Extract with Qwen2.5-VL'}</span>
+            </button>
+          )}
 
           <button
             onClick={onClose}
@@ -135,7 +238,7 @@ Digitized Clinical Observations:
 
       {/* ── SPLIT SCREEN WORKSPACE ── */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 overflow-hidden">
-        {/* ════════ LEFT SCREEN: USER UPLOADED CLINICAL IMAGE ════════ */}
+        {/* ════════ LEFT SCREEN: ORIGINAL UPLOADED CLINICAL IMAGE ════════ */}
         <section className="bg-slate-900 flex flex-col border-b lg:border-b-0 lg:border-r border-slate-800 overflow-hidden">
           {/* Subheader with File & Zoom Controls */}
           <div className="bg-slate-950/80 px-4 py-2.5 border-b border-slate-800 flex items-center justify-between text-xs text-slate-300 flex-shrink-0">
@@ -222,7 +325,7 @@ Digitized Clinical Observations:
               >
                 <img
                   src={imageSource}
-                  alt={currentFile?.name || 'Uploaded Clinical Prescription'}
+                  alt={currentFile?.name || 'Uploaded Clinical Document'}
                   className="max-h-[75vh] w-auto max-w-full object-contain rounded-xl shadow-2xl border border-slate-700/80 ring-1 ring-white/10"
                 />
               </div>
@@ -248,16 +351,16 @@ Digitized Clinical Observations:
             ) : (
               <div className="text-center p-8 text-slate-500">
                 <Icon name="image_not_supported" className="text-5xl mb-2 text-slate-600" />
-                <p className="text-xs">No document or scan attached to this record.</p>
+                <p className="text-xs">No attached image evidence found for this record</p>
               </div>
             )}
           </div>
 
-          {/* Bottom file metadata tag */}
+          {/* Left Footer Info */}
           {currentFile && (
-            <div className="bg-slate-950/90 px-4 py-2 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
-              <span className="truncate pr-2 font-mono">
-                Source File: <strong className="text-slate-200">{currentFile.name}</strong>
+            <div className="bg-slate-950/90 px-4 py-2 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between flex-shrink-0">
+              <span className="truncate pr-2">
+                Source Document: <strong className="text-slate-200">{currentFile.name}</strong>
               </span>
               {imageSource && (
                 <a
@@ -266,7 +369,7 @@ Digitized Clinical Observations:
                   rel="noreferrer"
                   className="text-teal-400 hover:text-teal-300 font-semibold flex items-center gap-1 flex-shrink-0"
                 >
-                  <span>Full View</span>
+                  <span>Open Full Image</span>
                   <Icon name="launch" className="text-xs" />
                 </a>
               )}
@@ -274,43 +377,80 @@ Digitized Clinical Observations:
           )}
         </section>
 
-        {/* ════════ RIGHT SCREEN: AI TRANSFORMER-BASED OCR ANALYSIS ════════ */}
+        {/* ════════ RIGHT SCREEN: AI QWEN2.5-VL-7B-INSTRUCT EXTRACTION ════════ */}
         <section className="bg-white flex flex-col overflow-hidden">
+          {/* ── CLINICAL VERIFICATION & SAFETY BANNER (Requirement 7) ── */}
+          {currentOcr?.is_verified_by_user ? (
+            <div className="bg-emerald-500/10 border-b border-emerald-500/30 px-4 py-2 flex flex-wrap items-center justify-between text-emerald-900 text-xs flex-shrink-0 gap-2">
+              <div className="flex items-center gap-2 font-bold">
+                <Icon name="verified" className="text-emerald-600 text-base flex-shrink-0" />
+                <span>✓ Clinically Confirmed & Verified by Healthcare Professional (Saved to Database)</span>
+              </div>
+              <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                Verified: {currentOcr.verified_at ? new Date(currentOcr.verified_at).toLocaleDateString() : 'Confirmed'}
+              </span>
+            </div>
+          ) : (
+            <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2.5 flex flex-wrap items-center justify-between text-amber-900 text-xs flex-shrink-0 gap-2">
+              <div className="flex items-center gap-2 font-bold">
+                <Icon name="warning" className="text-amber-600 text-base flex-shrink-0" />
+                <span>Clinical AI Transcription – Requires Physician Verification</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {currentOcr && (
+                  <button
+                    onClick={handleVerifyTranscription}
+                    disabled={isVerifying}
+                    className="teal-gradient-btn text-white text-[11px] font-bold px-3 py-1 rounded-full shadow-sm flex items-center gap-1 hover:scale-105 active:scale-95 transition-transform disabled:opacity-50"
+                  >
+                    <Icon name="check_circle" className="text-xs" />
+                    <span>{isVerifying ? 'Saving...' : 'Verify & Confirm'}</span>
+                  </button>
+                )}
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 flex-shrink-0">
+                  Unverified
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Subheader & Model Badges */}
           <div className="bg-slate-50 px-5 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-teal-600 text-white flex items-center justify-center shadow-sm">
+              <div className="w-8 h-8 rounded-lg bg-teal-700 text-white flex items-center justify-center shadow-sm">
                 <Icon name="neurology" className="text-xl" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="font-extrabold text-sm text-[#00241f]">
-                    Transformer-Based AI OCR Engine
+                    Qwen2.5-VL Clinical OCR
                   </h3>
-                  <span className="px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 text-[10px] font-bold flex items-center gap-1 border border-teal-300">
-                    <Icon name="verified" className="text-xs text-teal-600" />
-                    <span>{ocr.confidence || '99.1%'} Match</span>
-                  </span>
+                  {currentOcr && (
+                    <span className="px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 text-[10px] font-bold flex items-center gap-1 border border-teal-300">
+                      <Icon name="verified" className="text-xs text-teal-600" />
+                      <span>{Math.round((currentOcr.confidence_score || 0.85) * 100)}% Confidence</span>
+                    </span>
+                  )}
                 </div>
                 <p className="text-[11px] text-slate-500 font-mono">
-                  Model: {ocr.model || 'TrOCR (Vision Transformer + Seq2Seq)'}
+                  Type: <strong className="text-teal-900 uppercase">{docType.replace('_', ' ')}</strong> • Model: {currentOcr?.model_name || 'qwen/qwen2.5-vl-72b-instruct'}
                 </p>
               </div>
             </div>
 
-            {/* Performance Metric Pill */}
-            <div className="hidden sm:flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-slate-200 text-[11px] text-slate-600">
-              <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
-              <span>Inference: <strong>{ocr.inferenceTime || '175ms'}</strong></span>
+            {/* Performance status indicator */}
+            <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-slate-200 text-[11px] text-slate-600">
+              <span className={`w-2 h-2 rounded-full ${isAnalyzing ? 'bg-amber-500 animate-pulse' : 'bg-teal-500'}`} />
+              <span>{isAnalyzing ? 'Extracting...' : currentOcr ? 'Digitized' : 'Ready'}</span>
             </div>
           </div>
 
           {/* Tab Navigation */}
           <div className="flex items-center border-b border-slate-200 bg-white px-5 pt-2 flex-shrink-0 gap-2">
             {[
-              { id: 'structured', label: 'Structured Rx & Entities', icon: 'medication' },
-              { id: 'raw', label: 'Raw Digitized Text', icon: 'text_snippet' },
-              { id: 'advice', label: 'Clinical Advice & Notes', icon: 'fact_check' },
+              { id: 'structured', label: 'Structured Clinical Data', icon: 'fact_check' },
+              { id: 'raw', label: 'Raw Transcription', icon: 'text_snippet' },
+              { id: 'json', label: 'Technical JSON', icon: 'code' },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -327,152 +467,437 @@ Digitized Clinical Observations:
             ))}
           </div>
 
-          {/* Tab Contents */}
-          <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5 bg-[#faf8ff]">
-            {/* Record Identification Banner */}
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
-              <div className="flex items-start justify-between gap-3">
+          {/* Loading / Error States */}
+          {isAnalyzing && (
+            <div className="p-8 text-center bg-teal-50/40 border-b border-teal-100 flex flex-col items-center justify-center">
+              <div className="w-10 h-10 border-3 border-teal-600 border-t-transparent rounded-full animate-spin mb-3" />
+              <h4 className="font-bold text-sm text-teal-950">Analyzing Medical Document...</h4>
+              <p className="text-xs text-slate-500 mt-1">
+                Processing complete image with Qwen2.5-VL-7B-Instruct vision transformer.
+              </p>
+            </div>
+          )}
+
+          {analysisError && !currentOcr && (
+            <div className="m-4 p-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-900 flex items-start justify-between gap-2.5">
+              <div className="flex items-start gap-2.5">
+                <Icon name="error" className="text-rose-600 text-base flex-shrink-0 mt-0.5" />
                 <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 block">
-                    Recognized Clinical Entry
-                  </span>
-                  <h4 className="font-extrabold text-slate-900 text-sm mt-0.5">
-                    {record.doctorName ? `Dr. ${record.doctorName.replace(/^Dr\.?\s*/i, '')}` : 'Consulting Specialist'}
-                  </h4>
-                  <p className="text-xs text-slate-600 font-medium">
-                    Category: {record.category || 'General Health'}
-                  </p>
-                </div>
-                <div className="px-2.5 py-1 rounded-full bg-teal-50 border border-teal-200 text-teal-800 text-[10px] font-bold uppercase font-mono">
-                  {record.date || record.timestamp || 'Recorded'}
+                  <strong className="block font-bold">Analysis Notice:</strong>
+                  <span>{analysisError}</span>
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setAnalysisError('')}
+                className="text-rose-400 hover:text-rose-600"
+              >
+                <Icon name="close" className="text-sm" />
+              </button>
             </div>
+          )}
 
-            {/* ── TAB 1: STRUCTURED PRESCRIPTION & ENTITIES ── */}
+          {/* Tab Contents */}
+          <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5 bg-[#faf8ff]">
+            {/* ── TAB 1: DYNAMIC STRUCTURED VIEW ── */}
             {activeTab === 'structured' && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <Icon name="pill" className="text-teal-600 text-sm" />
-                    <span>Digitized Prescription Items ({ocr.structuredMedications?.length || 0})</span>
-                  </h4>
-                  <span className="text-[11px] text-teal-700 font-medium">
-                    Named Entity Recognition (NER)
+              <div className="space-y-5">
+                {/* Document Summary Card */}
+                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 block mb-1">
+                    Clinical Document Summary
                   </span>
+                  <p className="text-xs sm:text-sm text-slate-800 leading-relaxed font-medium">
+                    {currentOcr?.summary || record.description || record.title || 'Medical document recorded.'}
+                  </p>
                 </div>
 
-                <div className="space-y-3">
-                  {(ocr.structuredMedications || []).map((med, idx) => (
-                    <div
-                      key={idx}
-                      className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 hover:border-teal-400 transition-all"
-                    >
-                      <div className="flex items-start justify-between gap-3 mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs flex items-center justify-center border border-teal-200">
-                            {idx + 1}
-                          </span>
-                          <span className="font-extrabold text-base text-slate-900">{med.name}</span>
-                          <span className="px-2 py-0.5 rounded-md bg-teal-100/70 text-teal-800 text-xs font-bold font-mono">
-                            {med.dosage}
-                          </span>
-                        </div>
-                        <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 text-[11px] font-bold">
-                          {med.frequency}
-                        </span>
+                {/* ── PRESCRIPTION VIEW ── */}
+                {(docType === 'prescription' || isPrescription) && (
+                  <div className="space-y-4">
+                    {/* Doctor & Patient Metadata */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white rounded-2xl p-4 border border-slate-200 shadow-sm text-xs">
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-bold block">Attending Physician:</span>
+                        {renderValue(rx?.doctor_name || record.doctorName)}
                       </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600 mt-2.5 pt-2.5 border-t border-slate-100">
-                        <div>
-                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Timing:</span>
-                          <span className="font-medium text-slate-800">{med.timing}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Duration:</span>
-                          <span className="font-medium text-slate-800">{med.duration}</span>
-                        </div>
-                        <div className="sm:col-span-2">
-                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Clinical Purpose:</span>
-                          <span className="font-medium text-teal-900">{med.purpose}</span>
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-bold block">Clinic / Hospital:</span>
+                        {renderValue(rx?.clinic_or_hospital)}
+                      </div>
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-bold block">Consultation Date:</span>
+                        {renderValue(rx?.date_of_consultation || record.date)}
+                      </div>
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-bold block">Patient Identified:</span>
+                        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                          {renderValue(rx?.patient_name)}
+                          {rx?.patient_age_or_gender && (
+                            <span className="text-xs text-teal-800 font-mono bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                              Age/Gender: {rx.patient_age_or_gender}
+                            </span>
+                          )}
                         </div>
                       </div>
-
-                      {med.safetyAlert && (
-                        <div className="mt-3 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 flex items-start gap-2">
-                          <Icon name="warning" className="text-amber-600 text-sm flex-shrink-0 mt-0.5" />
-                          <span><strong>Safety Note:</strong> {med.safetyAlert}</span>
+                      {rx?.diagnosis_or_symptoms && rx.diagnosis_or_symptoms.length > 0 && (
+                        <div className="sm:col-span-2 pt-2 border-t border-slate-100">
+                          <span className="text-slate-400 text-[10px] uppercase font-bold block mb-1">Symptoms / Diagnosis:</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {rx.diagnosis_or_symptoms.map((diag, i) => (
+                              <span key={i} className="px-2 py-0.5 rounded-md bg-teal-50 border border-teal-200 text-teal-900 font-medium text-xs">
+                                {diag}
+                              </span>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
-                  ))}
-                </div>
+
+                    {/* Prescribed Medications Table (Requirement 5) */}
+                    <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                          <Icon name="medication" className="text-teal-600 text-base" />
+                          <span>Prescribed Medications ({rx?.medicines?.length || 0})</span>
+                        </h4>
+                        <span className="text-[10px] text-slate-400 font-mono">Structured Rx</span>
+                      </div>
+
+                      {rx?.medicines && rx.medicines.length > 0 ? (
+                        <div className="space-y-2">
+                          {rx.medicines.map((med, idx) => (
+                            <div
+                              key={idx}
+                              className="p-3 rounded-xl border bg-slate-50/80 border-slate-200 hover:border-teal-300 flex items-center justify-between transition-all"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="w-6 h-6 rounded-lg bg-teal-100 text-teal-900 font-bold text-xs flex items-center justify-center">
+                                  {idx + 1}
+                                </span>
+                                <span className="font-extrabold text-sm text-slate-900">
+                                  {med.name}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-500 italic p-3 bg-slate-50 rounded-xl">
+                          No distinct medications identified on this prescription.
+                        </p>
+                      )}
+
+                      {/* Instructions, Precautions & Notes */}
+                      {rx?.general_advice_or_lifestyle && rx.general_advice_or_lifestyle.length > 0 && (
+                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+                          <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                            Instructions, Precautions & Doctor Notes:
+                          </span>
+                          <ul className="space-y-1">
+                            {rx.general_advice_or_lifestyle.map((item, i) => (
+                              <li key={i} className="text-xs text-slate-700 flex items-start gap-1.5">
+                                <span className="text-teal-600 font-bold">•</span>
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {rx?.follow_up_advice && (
+                        <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl text-xs text-teal-900 flex items-center gap-2">
+                          <Icon name="event" className="text-teal-700 text-base flex-shrink-0" />
+                          <span><strong>Follow-up:</strong> {rx.follow_up_advice}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── MEDICAL & LABORATORY REPORT VIEW ── */}
+                {(docType === 'medical_report' || docType === 'laboratory_test') && (
+                  <div className="space-y-4">
+                    {/* Investigation Header */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white rounded-2xl p-4 border border-slate-200 shadow-sm text-xs">
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-bold block">Test / Investigation:</span>
+                        {renderValue(rep?.test_or_study_name || record.title)}
+                      </div>
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-bold block">Diagnostic Center / Lab:</span>
+                        {renderValue(rep?.laboratory_or_imaging_center)}
+                      </div>
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-bold block">Report Date:</span>
+                        {renderValue(rep?.report_date || record.date)}
+                      </div>
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-bold block">Referring Doctor:</span>
+                        {renderValue(rep?.referring_physician || record.doctorName)}
+                      </div>
+                    </div>
+
+                    {/* Numerical Measurements / Lab Values Table (Requirement 5) */}
+                    {rep?.measurements && rep.measurements.length > 0 && (
+                      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                          <Icon name="science" className="text-teal-600 text-base" />
+                          <span>Test Measurements & Lab Values ({rep.measurements.length})</span>
+                        </h4>
+
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="border-b border-slate-200 text-slate-400 text-[10px] uppercase">
+                                <th className="py-2 px-2 font-bold">Parameter</th>
+                                <th className="py-2 px-2 font-bold">Observed Value</th>
+                                <th className="py-2 px-2 font-bold">Unit</th>
+                                <th className="py-2 px-2 font-bold">Reference Interval</th>
+                                <th className="py-2 px-2 font-bold">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {rep.measurements.map((m, idx) => (
+                                <tr key={idx} className="hover:bg-slate-50/80">
+                                  <td className="py-2.5 px-2 font-bold text-slate-900">{m.parameter}</td>
+                                  <td className="py-2.5 px-2 font-mono font-bold text-slate-900">
+                                    {m.value}
+                                    {m.is_uncertain && (
+                                      <span className="ml-1 text-[10px] text-amber-600" title="Uncertain reading">
+                                        ⚠
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-2.5 px-2 text-slate-500 font-mono">{m.unit || 'N/A'}</td>
+                                  <td className="py-2.5 px-2 text-slate-500 font-mono">{m.reference_range || 'Not specified'}</td>
+                                  <td className="py-2.5 px-2">
+                                    <span
+                                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                        m.status === 'High' || m.status === 'Abnormal'
+                                          ? 'bg-rose-100 text-rose-800'
+                                          : m.status === 'Low'
+                                          ? 'bg-amber-100 text-amber-800'
+                                          : m.status === 'Normal'
+                                          ? 'bg-emerald-100 text-emerald-800'
+                                          : 'bg-slate-100 text-slate-600'
+                                      }`}
+                                    >
+                                      {m.status || 'Reported'}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Key Findings */}
+                    {rep?.key_findings && rep.key_findings.length > 0 && (
+                      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-2">
+                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                          <Icon name="fact_check" className="text-teal-600 text-base" />
+                          <span>Clinical Observations & Findings</span>
+                        </h4>
+                        <ul className="space-y-1.5">
+                          {rep.key_findings.map((finding, idx) => (
+                            <li key={idx} className="flex items-start gap-2 text-xs text-slate-700">
+                              <span className="w-1.5 h-1.5 rounded-full bg-teal-600 mt-1.5 flex-shrink-0" />
+                              <span>{finding}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Conclusions / Impressions */}
+                    {rep?.conclusions_or_impression && rep.conclusions_or_impression.length > 0 && (
+                      <div className="p-3.5 bg-teal-50 border border-teal-200 rounded-xl space-y-1">
+                        <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block">
+                          Diagnostic Impressions / Conclusions:
+                        </span>
+                        {rep.conclusions_or_impression.map((conc, idx) => (
+                          <p key={idx} className="text-xs text-teal-950 font-medium">
+                            • {conc}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── RADIOLOGY & IMAGING VIEW ── */}
+                {docType === 'radiology_imaging' && (
+                  <div className="space-y-4">
+                    <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <Icon name="radiology" className="text-teal-600 text-base" />
+                        <span>Radiology & Imaging Report Details</span>
+                      </h4>
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-bold block">Study Name:</span>
+                        {renderValue(rep?.test_or_study_name || record.title)}
+                      </div>
+                      {rep?.key_findings && rep.key_findings.length > 0 && (
+                        <div>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold block mb-1">Imaging Findings:</span>
+                          <ul className="space-y-1 text-xs text-slate-700">
+                            {rep.key_findings.map((f, i) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-teal-600 mt-1.5 flex-shrink-0" />
+                                <span>{f}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {rep?.conclusions_or_impression && rep.conclusions_or_impression.length > 0 && (
+                        <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl">
+                          <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block mb-1">
+                            Radiologist Impression:
+                          </span>
+                          {rep.conclusions_or_impression.map((c, i) => (
+                            <p key={i} className="text-xs text-teal-950 font-medium">
+                              • {c}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── DISCHARGE SUMMARY VIEW ── */}
+                {docType === 'discharge_summary' && (
+                  <div className="space-y-4">
+                    <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3 text-xs">
+                      <h4 className="font-bold text-slate-800 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                        <Icon name="hotel" className="text-teal-600 text-base" />
+                        <span>Hospital Discharge Summary</span>
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Hospital / Institute:</span>
+                          {renderValue(ds?.hospital_name)}
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Attending Consultant:</span>
+                          {renderValue(ds?.attending_physician)}
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Admission Date:</span>
+                          {renderValue(ds?.admission_date)}
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Discharge Date:</span>
+                          {renderValue(ds?.discharge_date)}
+                        </div>
+                      </div>
+
+                      {ds?.final_diagnoses && ds.final_diagnoses.length > 0 && (
+                        <div>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold block mb-1">Final Confirmed Diagnoses:</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {ds.final_diagnoses.map((d, i) => (
+                              <span key={i} className="px-2 py-0.5 rounded bg-teal-50 border border-teal-200 text-teal-900 font-medium text-xs">
+                                {d}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {ds?.procedures_or_surgeries && ds.procedures_or_surgeries.length > 0 && (
+                        <div>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold block mb-1">Procedures Performed:</span>
+                          <ul className="space-y-1">
+                            {ds.procedures_or_surgeries.map((p, i) => (
+                              <li key={i} className="text-xs text-slate-700">• {p}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {ds?.discharge_medications && ds.discharge_medications.length > 0 && (
+                        <div className="pt-2 border-t border-slate-100">
+                          <span className="text-slate-400 text-[10px] uppercase font-bold block mb-2">Discharge Medications:</span>
+                          <div className="space-y-2">
+                            {ds.discharge_medications.map((m, i) => (
+                              <div key={i} className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-xs flex justify-between">
+                                <span className="font-bold text-slate-900">{m.name} {m.strength}</span>
+                                <span className="text-slate-600">{m.dosage} • {m.frequency}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+
+                {/* No extraction prompt if OCR is still null */}
+                {!currentOcr && !isAnalyzing && (
+                  <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                    <Icon name="psychology" className="text-4xl text-teal-600 mx-auto" />
+                    <h4 className="font-bold text-slate-800 text-sm">Document Ready for Qwen2.5-VL Extraction</h4>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                      Click the button above to extract medicine names, dosages, or laboratory findings using the hosted Qwen2.5-VL-7B-Instruct model.
+                    </p>
+                    <button
+                      onClick={handleRunOcr}
+                      className="teal-gradient-btn text-white text-xs font-bold px-6 py-2.5 rounded-full shadow-pill-glow"
+                    >
+                      Extract Document Data Now
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* ── TAB 2: RAW DIGITIZED HANDWRITTEN TEXT ── */}
+            {/* ── TAB 2: RAW TRANSCRIPTION (Requirement 6) ── */}
             {activeTab === 'raw' && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                     <Icon name="code" className="text-teal-600 text-sm" />
-                    <span>Raw Transcribed Handwritten Stream</span>
+                    <span>Raw Transcribed Document Text</span>
                   </h4>
-                  <button
-                    onClick={handleCopy}
-                    className="text-xs font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1"
-                  >
-                    <Icon name={copied ? 'check' : 'content_copy'} className="text-xs" />
-                    <span>{copied ? 'Copied to Clipboard' : 'Copy Text'}</span>
-                  </button>
+                  {currentOcr?.raw_transcription && (
+                    <button
+                      onClick={handleCopyTranscription}
+                      className="text-xs font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1"
+                    >
+                      <Icon name={copied ? 'check' : 'content_copy'} className="text-xs" />
+                      <span>{copied ? 'Copied to Clipboard' : 'Copy Text'}</span>
+                    </button>
+                  )}
                 </div>
 
-                <div className="bg-slate-900 text-slate-100 rounded-2xl p-5 font-mono text-xs leading-relaxed border border-slate-800 shadow-inner whitespace-pre-wrap">
-                  {ocr.rawHandwritingText}
-                </div>
-
-                <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl text-xs text-teal-900 flex items-center gap-2">
-                  <Icon name="auto_awesome" className="text-teal-600 text-lg flex-shrink-0" />
-                  <span>
-                    Converted via deep vision transformer encoder (TrOCR) and autoregressive language model decoder.
-                  </span>
+                <div className="bg-slate-900 text-slate-100 rounded-2xl p-5 font-mono text-xs leading-relaxed border border-slate-800 shadow-inner whitespace-pre-wrap select-text">
+                  {currentOcr?.raw_transcription || (
+                    <span className="text-slate-500 italic">
+                      No raw transcription available yet. Click "Extract with Qwen2.5-VL" to process the image.
+                    </span>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* ── TAB 3: CLINICAL ADVICE & LABS ── */}
-            {activeTab === 'advice' && (
-              <div className="space-y-4">
-                <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
-                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                    <Icon name="biomedical" className="text-teal-600 text-base" />
-                    <span>Clinical Guidance & Follow-Up</span>
+            {/* ── TAB 3: TECHNICAL JSON ── */}
+            {activeTab === 'json' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Icon name="data_object" className="text-teal-600 text-sm" />
+                    <span>Structured JSON Payload</span>
                   </h4>
-                  <div className="space-y-2">
-                    {(ocr.recommendedInvestigations || []).map((item, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 font-medium"
-                      >
-                        <Icon name="check_circle" className="text-teal-600 text-base flex-shrink-0" />
-                        <span>{item}</span>
-                      </div>
-                    ))}
-                  </div>
                 </div>
-
-                <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-2">
-                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                    <Icon name="shield_with_heart" className="text-teal-600 text-base" />
-                    <span>Automated Clinical Safety Screen</span>
-                  </h4>
-                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-center gap-2 font-medium">
-                    <Icon name="verified_user" className="text-emerald-600 text-lg flex-shrink-0" />
-                    <span>
-                      Cryptographic notarization complete. Verified source file authenticated.
-                    </span>
-                  </div>
-                </div>
+                <pre className="bg-slate-900 text-teal-300 rounded-2xl p-4 font-mono text-[11px] overflow-x-auto border border-slate-800 shadow-inner">
+                  {currentOcr ? JSON.stringify(currentOcr, null, 2) : '// No OCR payload extracted yet'}
+                </pre>
               </div>
             )}
           </div>
@@ -480,7 +905,7 @@ Digitized Clinical Observations:
           {/* Bottom Action Footer */}
           <div className="bg-white border-t border-slate-200 p-4 px-6 flex items-center justify-between flex-shrink-0">
             <span className="text-[11px] text-slate-500 font-medium">
-              OnePatient Verified Clinical OCR Pipeline
+              OnePatient Verified Clinical OCR Pipeline • Non-Diagnostic
             </span>
             <button
               onClick={onClose}

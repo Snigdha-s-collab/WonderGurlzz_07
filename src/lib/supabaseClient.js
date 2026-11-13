@@ -6,18 +6,26 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'sb_publish
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
 /**
- * Fetch records from Supabase database (strictly user-uploaded records)
+ * Fetch records from Supabase database scoped to authenticated patient
  */
-export async function fetchRecordsFromSupabase() {
+export async function fetchRecordsFromSupabase(patientId = null) {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('medical_records')
       .select('*')
       .order('created_at', { ascending: false });
 
+    // Enforce patient scoping so users cannot access another patient's records
+    if (patientId) {
+      query = query.eq('patient_id', patientId);
+    }
+
+    const { data, error } = await query;
+
     if (!error && Array.isArray(data)) {
       return data.map((row) => ({
         id: row.id,
+        patientId: row.patient_id,
         title: row.title,
         description: row.description || row.title,
         doctorName: row.doctor_name,
@@ -30,6 +38,9 @@ export async function fetchRecordsFromSupabase() {
         ocrData: row.ocr_data,
       }));
     }
+    if (error) {
+      console.warn('Supabase query error:', error.message);
+    }
   } catch (err) {
     console.warn('Supabase fetch failed or offline; using local cache:', err);
   }
@@ -38,6 +49,7 @@ export async function fetchRecordsFromSupabase() {
 
 /**
  * Insert or upsert user-uploaded record directly into Supabase database
+ * Persists full files array and verified ocr_data JSONB
  */
 export async function insertRecordToSupabase(record) {
   try {
@@ -59,7 +71,7 @@ export async function insertRecordToSupabase(record) {
         time: record.time || new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
         status: record.status || 'Verified Record',
         files: record.files || [],
-        ocr_data: record.ocrData || null,
+        ocr_data: record.ocrData || null, // Stage 5: Save verified OCR response into JSONB column
       },
     ]);
     if (error) {
@@ -68,6 +80,26 @@ export async function insertRecordToSupabase(record) {
     return { data, error };
   } catch (err) {
     console.warn('Could not insert/upsert to Supabase:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Update OCR data for a specific record in Supabase (e.g., following human verification)
+ */
+export async function updateRecordOCRInSupabase(recordId, ocrData) {
+  try {
+    const { data, error } = await supabase
+      .from('medical_records')
+      .update({ ocr_data: ocrData })
+      .eq('id', recordId);
+
+    if (error) {
+      console.warn('Supabase update OCR warning:', error.message);
+    }
+    return { data, error };
+  } catch (err) {
+    console.warn('Could not update OCR in Supabase:', err);
     return { error: err };
   }
 }

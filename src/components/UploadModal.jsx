@@ -19,7 +19,7 @@ const PROBLEM_CATEGORIES = [
   'Other',
 ];
 
-export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
+export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentUser }) {
   const [title, setTitle] = useState('');
   const [doctorName, setDoctorName] = useState('');
   const [category, setCategory] = useState('');
@@ -29,6 +29,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
   });
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusText, setStatusText] = useState('');
   const [error, setError] = useState('');
 
   if (!isOpen) return null;
@@ -65,6 +66,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     }
 
     setIsSubmitting(true);
+    setStatusText('Reading file data...');
 
     const readFileAsDataUrl = (file) => {
       return new Promise((resolve) => {
@@ -101,9 +103,36 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
           url: dataUrl,
         };
       })
-    ).then((processedFiles) => {
+    ).then(async (processedFiles) => {
+      const primaryImage = processedFiles.find(
+        (f) => f.dataUrl && (f.dataUrl.startsWith('data:image/') || f.name.match(/\.(jpg|jpeg|png|webp)$/i))
+      );
+
+      let extractedOcr = null;
+      if (primaryImage && primaryImage.dataUrl) {
+        setStatusText('Analyzing with Qwen2.5-VL-7B-Instruct...');
+        try {
+          const apiRes = await fetch('http://127.0.0.1:8000/api/ocr/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image_base64: primaryImage.dataUrl,
+              document_hint: category || title,
+            }),
+          });
+          if (apiRes.ok) {
+            extractedOcr = await apiRes.json();
+          } else {
+            console.warn('FastAPI OCR service response status:', apiRes.status);
+          }
+        } catch (apiErr) {
+          console.warn('FastAPI backend connection notice (upload proceeding safely):', apiErr.message);
+        }
+      }
+
       const newRecord = {
         id: 'upload-' + Date.now(),
+        patientId: currentUser?.permanentId || 'NNM24cc059',
         title: title.trim(),
         description: title.trim(),
         doctorName: doctorName.trim(),
@@ -114,10 +143,12 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
         timestamp: `${formattedDate} • ${formattedTime}`,
         files: processedFiles,
         status: 'Cryptographically Verified',
+        ocrData: extractedOcr,
       };
 
       onUploadSuccess(newRecord);
       setIsSubmitting(false);
+      setStatusText('');
       setTitle('');
       setDoctorName('');
       setCategory('');
@@ -126,6 +157,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     }).catch((err) => {
       console.error(err);
       setIsSubmitting(false);
+      setStatusText('');
       setError('Error processing file. Please try again.');
     });
   };
@@ -316,7 +348,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
               {isSubmitting ? (
                 <>
                   <Icon name="sync" className="text-base animate-spin" />
-                  <span>Notarizing...</span>
+                  <span>{statusText || 'Processing...'}</span>
                 </>
               ) : (
                 <>

@@ -22,7 +22,7 @@ const PROBLEM_CATEGORIES = [
   'Other',
 ];
 
-export default function DoctorPortalView({ setPage, uploads = [] }) {
+export default function DoctorPortalView({ setPage, uploads = [], onUpdateRecord }) {
   // Extract token and patient name from hash query
   const getHashParams = () => {
     const hash = window.location.hash || '';
@@ -267,6 +267,13 @@ export default function DoctorPortalView({ setPage, uploads = [] }) {
         <DocumentSplitViewer
           record={selectedRecordForViewer}
           onClose={() => setSelectedRecordForViewer(null)}
+          onRecordUpdated={(updated) => {
+            setSelectedRecordForViewer(updated);
+            setPortalRecords((prev) =>
+              prev.map((r) => (r.id === updated.id ? updated : r))
+            );
+            if (onUpdateRecord) onUpdateRecord(updated);
+          }}
         />
       )}
     </div>

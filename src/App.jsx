@@ -67,12 +67,13 @@ export default function App() {
     }
   });
 
-  // Query Supabase to sync remote database records on launch
+  // Query Supabase to sync remote database records on launch or when patient logs in
   useEffect(() => {
     let isMounted = true;
     async function syncData() {
       try {
-        const remoteRecords = await fetchRecordsFromSupabase();
+        const patientId = currentUser?.permanentId || null;
+        const remoteRecords = await fetchRecordsFromSupabase(patientId);
         if (!isMounted) return;
 
         if (remoteRecords && remoteRecords.length > 0) {
@@ -89,9 +90,12 @@ export default function App() {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed) && parsed.length > 0) {
               for (const r of parsed) {
-                await insertRecordToSupabase(r);
+                await insertRecordToSupabase({
+                  ...r,
+                  patientId: r.patientId || currentUser?.permanentId || 'NNM24cc059',
+                });
               }
-              const reFetched = await fetchRecordsFromSupabase();
+              const reFetched = await fetchRecordsFromSupabase(patientId);
               if (reFetched && reFetched.length > 0 && isMounted) {
                 setUploads(reFetched);
               }
@@ -106,7 +110,7 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -153,17 +157,40 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Update single record in state and localStorage (e.g. after human verification)
+  const handleUpdateRecord = (updatedRecord) => {
+    setUploads((prev) =>
+      prev.map((r) => (r.id === updatedRecord.id ? updatedRecord : r))
+    );
+    try {
+      const stored = localStorage.getItem('onepatient_user_uploads');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const updated = parsed.map((r) => (r.id === updatedRecord.id ? updatedRecord : r));
+        localStorage.setItem('onepatient_user_uploads', JSON.stringify(updated));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // Add new uploaded record, persist locally and push to Supabase
   const handleUploadSuccess = (newRecord) => {
-    const updated = [newRecord, ...uploads];
+    // Explicitly scope record to authenticated patient (Requirement 3)
+    const patientId = currentUser?.permanentId || 'NNM24cc059';
+    const recordWithPatient = {
+      ...newRecord,
+      patientId: newRecord.patientId || patientId,
+    };
+    const updated = [recordWithPatient, ...uploads];
     setUploads(updated);
     try {
       localStorage.setItem('onepatient_user_uploads', JSON.stringify(updated));
     } catch (e) {
       console.error(e);
     }
-    // Asynchronously insert to Supabase database table
-    insertRecordToSupabase(newRecord);
+    // Asynchronously insert to Supabase database table with ocr_data JSONB
+    insertRecordToSupabase(recordWithPatient);
 
     // Navigate straight to the My Uploads panel
     navigateTo('my-uploads');
@@ -171,7 +198,7 @@ export default function App() {
 
   // 1. Doctor Portal View (Accessed directly via scanned QR code URL)
   if (page === 'doctor-portal') {
-    return <DoctorPortalView setPage={navigateTo} uploads={uploads} />;
+    return <DoctorPortalView setPage={navigateTo} uploads={uploads} onUpdateRecord={handleUpdateRecord} />;
   }
 
   // 2. Patient Authentication gate
@@ -197,6 +224,7 @@ export default function App() {
           onOpenUploadModal={() => setIsUploadModalOpen(true)}
           currentUser={currentUser}
           onLogout={handleLogout}
+          onUpdateRecord={handleUpdateRecord}
         />
       )}
       {page === 'access-qr' && (
@@ -234,6 +262,7 @@ export default function App() {
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
         onUploadSuccess={handleUploadSuccess}
+        currentUser={currentUser}
       />
     </div>
   );

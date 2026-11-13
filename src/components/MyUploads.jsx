@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import DocumentSplitViewer from './DocumentSplitViewer';
 
 function Icon({ name, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
@@ -73,8 +74,9 @@ const MEDICAL_CATEGORIES = [
   },
 ];
 
-export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, currentUser, onLogout }) {
+export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, currentUser, onLogout, onUpdateRecord }) {
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
+  const [selectedRecordForViewer, setSelectedRecordForViewer] = useState(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [categorySearch, setCategorySearch] = useState('');
   const dropdownRef = useRef(null);
@@ -567,10 +569,11 @@ export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, cu
                     <span>{item.status || 'Verified Record'}</span>
                   </span>
                   <button
-                    onClick={() => alert(`Opening record: "${item.title || item.description}"`)}
-                    className="text-xs font-bold text-teal-800 hover:text-teal-600 hover:underline"
+                    onClick={() => setSelectedRecordForViewer(item)}
+                    className="text-xs font-bold text-teal-800 hover:text-teal-600 hover:underline flex items-center gap-1"
                   >
-                    View Details →
+                    <span>View Details & OCR</span>
+                    <Icon name="arrow_forward" className="text-sm" />
                   </button>
                 </div>
               </div>
@@ -578,6 +581,18 @@ export default function MyUploads({ setPage, uploads = [], onOpenUploadModal, cu
           </div>
         )}
       </main>
+
+      {/* Split Screen Document & Transformer-based OCR Viewer */}
+      {selectedRecordForViewer && (
+        <DocumentSplitViewer
+          record={selectedRecordForViewer}
+          onClose={() => setSelectedRecordForViewer(null)}
+          onRecordUpdated={(updated) => {
+            setSelectedRecordForViewer(updated);
+            if (onUpdateRecord) onUpdateRecord(updated);
+          }}
+        />
+      )}
     </div>
   );
 }
