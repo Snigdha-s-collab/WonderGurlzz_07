@@ -5,36 +5,55 @@ import AuditTrail from './components/AuditTrail';
 import AuthPage from './components/AuthPage';
 import MyUploads from './components/MyUploads';
 import UploadModal from './components/UploadModal';
+import AboutUs from './components/AboutUs';
+import AccessQRPage from './components/AccessQRPage';
+import DoctorPortalView from './components/DoctorPortalView';
 import AskMedBot from './components/AskMedBot';
 import { formatTime24To12 } from './services/medbotAgent';
+import { fetchRecordsFromSupabase, insertRecordToSupabase } from './lib/supabaseClient';
 
 const INITIAL_UPLOADS = [
   {
     id: 'upload-init-1',
+    title: 'Metformin 500mg Daily Prescription — Blood sugar monitoring after breakfast',
     description: 'Metformin 500mg Daily Prescription — Blood sugar monitoring after breakfast',
     category: 'Endocrinology & Diabetes',
     date: 'Nov 10, 2026',
     time: '10:30 AM',
     timestamp: 'Nov 10, 2026 • 10:30 AM',
+    doctorName: 'Dr. Rajiv Mehta',
     prescriptionText:
       'Prescribed by Dr. Rajiv Mehta\n1. Metformin 500mg — Take 1 tablet once daily after warm breakfast for 90 days (08:00 AM)\n2. Atorvastatin 20mg — Take 1 tablet once daily at bedtime with water (10:00 PM)',
     files: [
-      { name: 'Metformin_Prescription_DrMehta.pdf', size: '142.5 KB', type: 'application/pdf' },
+      {
+        name: 'Metformin_Prescription_DrMehta.pdf',
+        size: '142.5 KB',
+        type: 'application/pdf',
+        url: '/uploads/prescription-default.jpeg',
+        dataUrl: '/uploads/prescription-default.jpeg',
+      },
     ],
     status: 'Cryptographically Verified',
   },
   {
     id: 'upload-init-2',
+    title: 'Complete Lipid Panel & Fasting Glucose Comprehensive Pathology Report',
     description: 'Complete Lipid Panel & Fasting Glucose Comprehensive Pathology Report',
     category: 'Laboratory & Pathology',
     date: 'Nov 06, 2026',
     time: '04:15 PM',
     timestamp: 'Nov 06, 2026 • 04:15 PM',
+    doctorName: 'Dr. Sarah Jenkins',
     prescriptionText:
       'Pathology Report — Fasting Glucose & Complete Lipid Panel (SRL Diagnostics). Review results with Dr. Sarah Jenkins.',
     files: [
-      { name: 'Lipid_Panel_Nov2026.pdf', size: '318.2 KB', type: 'application/pdf' },
-      { name: 'Blood_Glucose_Graph.png', size: '89.4 KB', type: 'image/png' },
+      {
+        name: 'Lipid_Panel_Nov2026.pdf',
+        size: '318.2 KB',
+        type: 'application/pdf',
+        url: '/uploads/prescription-default.jpeg',
+        dataUrl: '/uploads/prescription-default.jpeg',
+      },
     ],
     status: 'Cryptographically Verified',
   },
@@ -86,10 +105,13 @@ function playReminderChime() {
 
 function getPageFromHash() {
   const hash = window.location.hash.replace('#', '');
+  if (hash.startsWith('doctor-portal')) return 'doctor-portal';
   if (hash === 'dashboard') return 'dashboard';
   if (hash === 'audit') return 'audit';
   if (hash === 'my-uploads') return 'my-uploads';
   if (hash === 'medbot') return 'medbot';
+  if (hash === 'about-us' || hash === 'about') return 'about-us';
+  if (hash === 'access-qr') return 'access-qr';
   return 'landing';
 }
 
@@ -107,14 +129,74 @@ export default function App() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [medbotUploadId, setMedbotUploadId] = useState(null);
 
+  // Load user uploads and enrich with image URLs
   const [uploads, setUploads] = useState(() => {
     try {
       const stored = localStorage.getItem('onepatient_user_uploads');
-      return stored ? JSON.parse(stored) : INITIAL_UPLOADS;
-    } catch {
+      if (!stored) return INITIAL_UPLOADS;
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((item) => {
+          if (item.files && item.files.length > 0) {
+            item.files = item.files.map((f) => {
+              if (!f.dataUrl && !f.url) {
+                return {
+                  ...f,
+                  dataUrl: '/uploads/prescription-default.jpeg',
+                  url: '/uploads/prescription-default.jpeg',
+                };
+              }
+              return f;
+            });
+          }
+          return item;
+        });
+      }
+      return INITIAL_UPLOADS;
+    } catch (e) {
+      console.error(e);
       return INITIAL_UPLOADS;
     }
   });
+
+  // Query Supabase to sync remote database records on launch
+  useEffect(() => {
+    let isMounted = true;
+    async function syncData() {
+      try {
+        const remoteRecords = await fetchRecordsFromSupabase();
+        if (!isMounted) return;
+
+        if (remoteRecords && remoteRecords.length > 0) {
+          setUploads(remoteRecords);
+          try {
+            localStorage.setItem('onepatient_user_uploads', JSON.stringify(remoteRecords));
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          // If remote DB is empty, sync initial records to Supabase
+          const stored = localStorage.getItem('onepatient_user_uploads');
+          const recordsToSync = stored ? JSON.parse(stored) : INITIAL_UPLOADS;
+          if (Array.isArray(recordsToSync) && recordsToSync.length > 0) {
+            for (const r of recordsToSync) {
+              await insertRecordToSupabase(r);
+            }
+            const reFetched = await fetchRecordsFromSupabase();
+            if (reFetched && reFetched.length > 0 && isMounted) {
+              setUploads(reFetched);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Supabase sync error:', err);
+      }
+    }
+    syncData();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const [reminders, setReminders] = useState(() => {
     try {
@@ -138,11 +220,18 @@ export default function App() {
   const triggeredMinuteRef = useRef({});
   const snoozedUntilRef = useRef({});
 
+  // Persist user and reminders
   useEffect(() => {
-    const handleHashChange = () => setPage(getPageFromHash());
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+    try {
+      if (currentUser) {
+        localStorage.setItem('onepatient_current_user', JSON.stringify(currentUser));
+      } else {
+        localStorage.removeItem('onepatient_current_user');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     try {
@@ -160,81 +249,92 @@ export default function App() {
     }
   }, [soundEnabled]);
 
-  const fireReminderNotification = (rem) => {
-    const timeLabel = formatTime24To12(rem.time24);
-    const notifItem = {
-      id: `notif-${rem.id}-${Date.now()}`,
-      reminderId: rem.id,
-      medName: rem.medName,
-      dosage: rem.dosage,
-      instruction: rem.instruction,
-      timeLabel,
-    };
-
-    setNotifications((prev) => [notifItem, ...prev.filter((n) => n.reminderId !== rem.id)]);
-
-    if (soundEnabled) {
-      playReminderChime();
-    }
-
-    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-      try {
-        new Notification(`Medication Reminder: ${rem.medName} ${rem.dosage || ''}`.trim(), {
-          body: `${rem.instruction} (${timeLabel})`,
-        });
-      } catch (e) {
-        console.warn('Browser notification failed:', e);
-      }
-    }
-  };
-
-  // Background medication reminder scheduler
+  // Request browser notification permission gently if user has active reminders
   useEffect(() => {
-    if (!currentUser) return;
-
-    const checkDueReminders = () => {
-      const now = new Date();
-      const hh = String(now.getHours()).padStart(2, '0');
-      const mm = String(now.getMinutes()).padStart(2, '0');
-      const currentHHMM = `${hh}:${mm}`;
-      const todayKey = now.toISOString().split('T')[0];
-      const nowMs = now.getTime();
-
-      for (const rem of reminders) {
-        if (!rem.enabled) continue;
-        if (rem.lastTakenDate === todayKey) continue;
-
-        const snoozeTarget = snoozedUntilRef.current[rem.id];
-        if (snoozeTarget && nowMs >= snoozeTarget) {
-          delete snoozedUntilRef.current[rem.id];
-          fireReminderNotification(rem);
-          continue;
-        }
-
-        const minuteStamp = `${todayKey}_${currentHHMM}`;
-        if (rem.time24 === currentHHMM && triggeredMinuteRef.current[rem.id] !== minuteStamp) {
-          triggeredMinuteRef.current[rem.id] = minuteStamp;
-          fireReminderNotification(rem);
-        }
+    if (reminders.length > 0 && typeof Notification !== 'undefined') {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
       }
-    };
-
-    checkDueReminders();
-    const timer = setInterval(checkDueReminders, 15000);
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser, reminders, soundEnabled]);
-
-  const handleLoginSuccess = (user) => {
-    setCurrentUser(user);
-    try {
-      localStorage.setItem('onepatient_current_user', JSON.stringify(user));
-    } catch (e) {
-      console.error(e);
     }
-    setPage('landing');
-    window.location.hash = '';
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [reminders.length]);
+
+  // Real-time medication reminder scheduler
+  useEffect(() => {
+    function checkReminders() {
+      const now = new Date();
+      const currentH = String(now.getHours()).padStart(2, '0');
+      const currentM = String(now.getMinutes()).padStart(2, '0');
+      const currentTime24 = `${currentH}:${currentM}`;
+      const todayKey = now.toISOString().split('T')[0];
+      const nowTs = now.getTime();
+
+      reminders.forEach((rem) => {
+        if (!rem.enabled) return;
+
+        const alreadyTakenToday = rem.lastTakenDate === todayKey;
+        if (alreadyTakenToday) return;
+
+        const triggerKey = `${rem.id}_${todayKey}_${currentTime24}`;
+        const isScheduledTime = rem.time24 === currentTime24;
+        const isSnoozedDue =
+          snoozedUntilRef.current[rem.id] && snoozedUntilRef.current[rem.id] <= nowTs;
+
+        if ((isScheduledTime && !triggeredMinuteRef.current[triggerKey]) || isSnoozedDue) {
+          triggeredMinuteRef.current[triggerKey] = true;
+          if (isSnoozedDue) {
+            delete snoozedUntilRef.current[rem.id];
+          }
+
+          const notifId = 'notif-' + Date.now() + '-' + rem.id;
+          const newNotif = {
+            id: notifId,
+            reminderId: rem.id,
+            medName: rem.medName,
+            dosage: rem.dosage,
+            instruction: rem.instruction,
+            timeLabel: formatTime24To12(rem.time24),
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            createdAt: nowTs,
+          };
+
+          setNotifications((prev) => [newNotif, ...prev.filter((n) => n.reminderId !== rem.id)]);
+
+          if (soundEnabled) {
+            playReminderChime();
+          }
+
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            try {
+              new Notification(`Medication Reminder: ${rem.medName}`, {
+                body: `${rem.medName} ${rem.dosage} — ${rem.instruction}. Time to take your scheduled dose.`,
+                icon: '/vite.svg',
+                tag: rem.id,
+              });
+            } catch (err) {
+              console.warn('System notification failed:', err);
+            }
+          }
+        }
+      });
+    }
+
+    checkReminders();
+    const interval = setInterval(checkReminders, 15000);
+    return () => clearInterval(interval);
+  }, [reminders, soundEnabled]);
+
+  // Synchronize URL hash with page state
+  useEffect(() => {
+    const handleHashChange = () => {
+      setPage(getPageFromHash());
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const handleAuthSuccess = (userData) => {
+    setCurrentUser(userData);
+    navigateTo('my-uploads');
   };
 
   const handleLogout = () => {
@@ -250,7 +350,7 @@ export default function App() {
   const navigateTo = (newPage) => {
     setPage(newPage);
     if (newPage === 'landing') window.location.hash = '';
-    else window.location.hash = newPage;
+    else if (!newPage.startsWith('doctor-portal')) window.location.hash = newPage;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -259,11 +359,13 @@ export default function App() {
     navigateTo('medbot');
   };
 
-  const handleSaveUpload = (newRecord, shouldRedirect = true) => {
+  // Add new uploaded record, persist locally and push to Supabase
+  const handleSaveUpload = async (newRecord, shouldRedirect = true) => {
     const updated = [newRecord, ...uploads];
     setUploads(updated);
     try {
       localStorage.setItem('onepatient_user_uploads', JSON.stringify(updated));
+      await insertRecordToSupabase(newRecord);
     } catch (e) {
       console.error(e);
     }
@@ -334,37 +436,49 @@ export default function App() {
     );
     if (notificationId) {
       setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
-    } else {
-      setNotifications((prev) => prev.filter((n) => n.reminderId !== reminderId));
     }
-  };
-
-  const handleSnoozeNotification = (notif) => {
-    snoozedUntilRef.current[notif.reminderId] = Date.now() + 10 * 60 * 1000;
-    setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
   };
 
   const handleDismissNotification = (notifId) => {
     setNotifications((prev) => prev.filter((n) => n.id !== notifId));
   };
 
-  const handleTriggerTestReminder = () => {
-    const target = reminders.find((r) => r.enabled) || {
-      id: 'test-rem',
-      medName: 'Metformin',
-      dosage: '500mg',
-      time24: new Date().toTimeString().slice(0, 5),
-      instruction: 'Scheduled test medication reminder alert',
-    };
-    fireReminderNotification(target);
+  const handleSnoozeNotification = (notif, minutes = 10) => {
+    snoozedUntilRef.current[notif.reminderId] = Date.now() + minutes * 60 * 1000;
+    setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
   };
 
-  if (!currentUser) {
-    return <AuthPage onLoginSuccess={handleLoginSuccess} />;
+  const handleTriggerTestReminder = () => {
+    const testRem = reminders[0] || {
+      id: 'test-rem',
+      medName: 'Metformin 500mg',
+      dosage: '1 tablet',
+      instruction: 'Take after meal with warm water (Test Dose Alert)',
+      time24: '08:00',
+    };
+    const notif = {
+      id: 'test-notif-' + Date.now(),
+      reminderId: testRem.id,
+      medName: testRem.medName,
+      dosage: testRem.dosage || '500mg',
+      instruction: testRem.instruction || 'Take after meal with water',
+      timeLabel: formatTime24To12(testRem.time24 || '08:00'),
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAt: Date.now(),
+    };
+    setNotifications((prev) => [notif, ...prev]);
+    if (soundEnabled) {
+      playReminderChime();
+    }
+  };
+
+  // Dedicated doctor portal view route for scanned QR access
+  if (page.startsWith('doctor-portal')) {
+    return <DoctorPortalView uploads={uploads} setPage={navigateTo} />;
   }
 
   return (
-    <div className="font-sans antialiased text-slate-800">
+    <div className="font-['Plus_Jakarta_Sans',sans-serif] min-h-screen bg-[#faf8ff] text-[#131b2e] antialiased">
       {page === 'landing' && (
         <LandingPage
           setPage={navigateTo}
@@ -376,7 +490,13 @@ export default function App() {
           onMarkTaken={handleMarkTaken}
           onDismissNotification={handleDismissNotification}
           onTriggerTestReminder={handleTriggerTestReminder}
-          onOpenMedBot={() => handleOpenMedBot()}
+          onOpenMedBot={handleOpenMedBot}
+        />
+      )}
+      {page === 'auth' && (
+        <AuthPage
+          setPage={navigateTo}
+          onAuthSuccess={handleAuthSuccess}
         />
       )}
       {page === 'my-uploads' && (
@@ -415,6 +535,13 @@ export default function App() {
           onToggleSound={() => setSoundEnabled((v) => !v)}
         />
       )}
+      {page === 'access-qr' && (
+        <AccessQRPage
+          setPage={navigateTo}
+          currentUser={currentUser}
+          onLogout={handleLogout}
+        />
+      )}
       {page === 'dashboard' && (
         <PatientDashboard
           setPage={navigateTo}
@@ -425,6 +552,14 @@ export default function App() {
       )}
       {page === 'audit' && (
         <AuditTrail
+          setPage={navigateTo}
+          currentUser={currentUser}
+          onLogout={handleLogout}
+          onOpenUploadModal={() => setIsUploadModalOpen(true)}
+        />
+      )}
+      {page === 'about-us' && (
+        <AboutUs
           setPage={navigateTo}
           currentUser={currentUser}
           onLogout={handleLogout}

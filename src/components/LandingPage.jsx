@@ -51,7 +51,9 @@ export default function LandingPage({
                   } else if (link === 'My Uploads') {
                     setPage('my-uploads');
                   } else if (link === 'Access QR') {
-                    setPage('dashboard');
+                    setPage('access-qr');
+                  } else if (link === 'About Us') {
+                    setPage('about-us');
                   } else if (link === 'Ask MedBot') {
                     onOpenMedBot ? onOpenMedBot() : setPage('medbot');
                   }
@@ -120,7 +122,9 @@ export default function LandingPage({
                   } else if (link === 'My Uploads') {
                     setPage('my-uploads');
                   } else if (link === 'Access QR') {
-                    setPage('dashboard');
+                    setPage('access-qr');
+                  } else if (link === 'About Us') {
+                    setPage('about-us');
                   } else if (link === 'Ask MedBot') {
                     onOpenMedBot ? onOpenMedBot() : setPage('medbot');
                   }
