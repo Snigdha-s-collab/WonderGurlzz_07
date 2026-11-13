@@ -87,11 +87,17 @@ export default function MyUploads({
   onDismissNotification,
   onTriggerTestReminder,
   onOpenMedBot,
+  sharingGroups = [],
+  groupMembers = [],
+  onRevokeMember,
+  onAddMember,
 }) {
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
   const [selectedRecordForViewer, setSelectedRecordForViewer] = useState(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [categorySearch, setCategorySearch] = useState('');
+  const [selectedRecordForDetails, setSelectedRecordForDetails] = useState(null);
+
   const dropdownRef = useRef(null);
   const categorySearchInputRef = useRef(null);
 
@@ -178,10 +184,17 @@ export default function MyUploads({
     );
   });
 
+  // STRICT NEWEST-FIRST SORTING: sorts by High-Precision ISO 8601 created_at timestamp
+  const sortedUploads = [...filteredUploads].sort((a, b) => {
+    const timeA = new Date(a.createdAt || a.date || 0).getTime();
+    const timeB = new Date(b.createdAt || b.date || 0).getTime();
+    return timeB - timeA;
+  });
+
   return (
     <div className="bg-[#faf8ff] text-[#131b2e] min-h-screen flex flex-col">
       {/* ── HEADER ── */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-[#00241f] px-4 py-3 shadow-md">
+      <header className="fixed top-0 left-0 right-0 z-40 bg-[#00241f] px-4 py-3 shadow-md">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           {/* Logo */}
           <div className="flex items-center gap-3">
@@ -209,8 +222,9 @@ export default function MyUploads({
                     onOpenMedBot ? onOpenMedBot() : setPage('medbot');
                   }
                 }}
-                className={`text-sm font-medium transition-colors ${link === 'My Uploads' ? 'text-teal-300 font-bold' : 'text-white/80 hover:text-teal-300'
-                  }`}
+                className={`text-sm font-medium transition-colors ${
+                  link === 'My Uploads' ? 'text-teal-300 font-bold' : 'text-white/80 hover:text-teal-300'
+                }`}
               >
                 {link}
               </button>
@@ -232,7 +246,7 @@ export default function MyUploads({
               <div className="w-8 h-8 rounded-full teal-gradient-btn flex items-center justify-center text-white text-sm">
                 <Icon name="person" className="text-lg" />
               </div>
-              <span className="text-[10px] font-semibold text-white/90 max-w-[80px] truncate">
+              <span className="text-[10px] font-semibold text-white/90 max-w-[90px] truncate">
                 {currentUser?.name || 'User'}
               </span>
             </div>
@@ -252,7 +266,6 @@ export default function MyUploads({
 
       {/* ── MAIN CONTENT ── */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 pt-24 pb-16">
-
         {/* Top Title Banner */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
@@ -290,7 +303,7 @@ export default function MyUploads({
                 <span>Select Medical Category</span>
               </span>
               <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">
-                Filter health records by medical specialty
+                Filter health records by clinical specialty
               </span>
             </div>
 
@@ -301,8 +314,9 @@ export default function MyUploads({
               aria-haspopup="listbox"
               aria-expanded={isDropdownOpen}
               aria-label={`Select Medical Category: ${currentCategoryObj.name}`}
-              className={`w-full bg-slate-50 hover:bg-slate-100/90 border rounded-xl px-4 py-3 flex items-center justify-between text-left transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 ${isDropdownOpen ? 'border-teal-500 ring-2 ring-teal-500/20 bg-white' : 'border-slate-200 hover:border-teal-300'
-                }`}
+              className={`w-full bg-slate-50 hover:bg-slate-100/90 border rounded-xl px-4 py-3 flex items-center justify-between text-left transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 ${
+                isDropdownOpen ? 'border-teal-500 ring-2 ring-teal-500/20 bg-white' : 'border-slate-200 hover:border-teal-300'
+              }`}
             >
               <div className="flex items-center gap-3 min-w-0 pr-2">
                 <div className="w-9 h-9 rounded-xl bg-teal-50 border border-teal-100 text-teal-700 flex items-center justify-center flex-shrink-0">
@@ -325,8 +339,9 @@ export default function MyUploads({
               <div className="flex items-center gap-1.5 flex-shrink-0 ml-2 text-slate-400">
                 <Icon
                   name="arrow_drop_down"
-                  className={`text-2xl transition-transform duration-200 ${isDropdownOpen ? 'rotate-180 text-teal-600' : ''
-                    }`}
+                  className={`text-2xl transition-transform duration-200 ${
+                    isDropdownOpen ? 'rotate-180 text-teal-600' : ''
+                  }`}
                 />
               </div>
             </button>
@@ -347,7 +362,7 @@ export default function MyUploads({
                   <input
                     ref={categorySearchInputRef}
                     type="text"
-                    placeholder="Search category (e.g. Cardiology, Pediatrics...)"
+                    placeholder="Search category (e.g. Cardiology, Neurology...)"
                     value={categorySearch}
                     onChange={(e) => setCategorySearch(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
@@ -419,17 +434,19 @@ export default function MyUploads({
                             setIsDropdownOpen(false);
                             setCategorySearch('');
                           }}
-                          className={`w-full text-left px-3 py-2.5 rounded-xl transition-all flex items-center justify-between gap-3 group ${isSelected
-                            ? 'bg-teal-50 border border-teal-200 text-teal-950 font-bold shadow-xs'
-                            : 'hover:bg-slate-50 text-slate-700 border border-transparent'
-                            }`}
+                          className={`w-full text-left px-3 py-2.5 rounded-xl transition-all flex items-center justify-between gap-3 group ${
+                            isSelected
+                              ? 'bg-teal-50 border border-teal-200 text-teal-950 font-bold shadow-xs'
+                              : 'hover:bg-slate-50 text-slate-700 border border-transparent'
+                          }`}
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <div
-                              className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${isSelected
-                                ? 'bg-teal-600 text-white'
-                                : 'bg-slate-100 text-teal-700 group-hover:bg-teal-100'
-                                }`}
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+                                isSelected
+                                  ? 'bg-teal-600 text-white'
+                                  : 'bg-slate-100 text-teal-700 group-hover:bg-teal-100'
+                              }`}
                             >
                               <Icon name={cat.icon} className="text-lg" />
                             </div>
@@ -439,8 +456,9 @@ export default function MyUploads({
                                   {cat.name}
                                 </span>{' '}
                                 <span
-                                  className={`text-[11px] sm:text-xs font-normal ${isSelected ? 'text-teal-700' : 'text-slate-400'
-                                    }`}
+                                  className={`text-[11px] sm:text-xs font-normal ${
+                                    isSelected ? 'text-teal-700' : 'text-slate-400'
+                                  }`}
                                 >
                                   ({cat.explanation})
                                 </span>
@@ -486,8 +504,8 @@ export default function MyUploads({
           </div>
         </section>
 
-        {/* Uploads Grid / List */}
-        {filteredUploads.length === 0 ? (
+        {/* ── UPLOADS GRID / LIST (NEWEST-FIRST SORTED) ── */}
+        {sortedUploads.length === 0 ? (
           <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80 shadow-sm">
             <div className="w-16 h-16 rounded-full bg-teal-50 text-teal-700 flex items-center justify-center mx-auto mb-4">
               <Icon name="inventory_2" className="text-3xl" />
@@ -518,34 +536,61 @@ export default function MyUploads({
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {filteredUploads.map((item) => (
+            {sortedUploads.map((item, index) => (
               <div
                 key={item.id}
-                className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:border-teal-300 hover:shadow-card-glass transition-all flex flex-col justify-between"
+                className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:border-teal-300 hover:shadow-card-glass transition-all flex flex-col justify-between group"
               >
                 <div>
-                  {/* Category Pill & Date */}
-                  <div className="flex items-center justify-between gap-2 mb-3">
+                  {/* Category Pill, Sharing Badge & Upload Timestamp */}
+                  <div className="flex items-center justify-between gap-2 mb-2.5">
                     <span className="px-2.5 py-1 rounded-full bg-teal-50 border border-teal-200 text-teal-800 font-bold text-[10px] tracking-wide uppercase">
                       {item.category}
                     </span>
-                    <span className="text-[11px] text-slate-400 font-mono">
-                      {item.date || item.timestamp}
-                    </span>
+
+                    {/* Sharing Badge */}
+                    {item.isShared ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-100 text-teal-900 border border-teal-300 font-bold text-[10px]">
+                        <Icon name="diversity_1" className="text-xs text-teal-700" />
+                        <span>Shared Care Circle</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[10px]">
+                        <Icon name="lock" className="text-xs text-slate-500" />
+                        <span>Private</span>
+                      </span>
+                    )}
                   </div>
 
                   {/* Title / Description */}
-                  <h3 className="font-bold text-sm text-slate-900 mb-1 leading-snug">
+                  <h3 className="font-bold text-sm text-slate-900 mb-1 leading-snug group-hover:text-teal-900 transition-colors">
                     {item.title || item.description}
                   </h3>
 
-                  {/* Doctor Name */}
-                  {item.doctorName && (
-                    <div className="flex items-center gap-1.5 text-xs text-teal-800 font-medium mb-2">
-                      <Icon name="stethoscope" className="text-sm text-teal-600" />
-                      <span>{item.doctorName}</span>
+                  {/* Doctor Name & Uploader Info */}
+                  <div className="space-y-1 mb-2.5">
+                    {item.doctorName && (
+                      <div className="flex items-center gap-1.5 text-xs text-teal-800 font-medium">
+                        <Icon name="stethoscope" className="text-sm text-teal-600" />
+                        <span>{item.doctorName}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                      <Icon name="person" className="text-xs text-slate-400" />
+                      <span>Uploaded by: <strong className="text-slate-700">{item.uploadedByName || 'Patient'}</strong></span>
                     </div>
-                  )}
+                  </div>
+
+                  {/* High Precision Upload Timestamp */}
+                  <div className="flex items-center gap-1 text-[11px] font-mono text-slate-400 mb-3 bg-slate-50 px-2 py-1 rounded-lg">
+                    <Icon name="schedule" className="text-xs text-teal-600" />
+                    <span>{item.date || item.timestamp}</span>
+                    {index === 0 && (
+                      <span className="ml-auto text-[9px] font-bold bg-teal-500 text-white px-1.5 py-0.2 rounded-full uppercase">
+                        Newest
+                      </span>
+                    )}
+                  </div>
 
                   {/* Attached Files List */}
                   {item.files && item.files.length > 0 && (
@@ -562,6 +607,11 @@ export default function MyUploads({
                             <Icon name="attach_file" className="text-teal-600 text-sm flex-shrink-0" />
                             <span className="truncate font-medium">{file.name}</span>
                           </div>
+                          {file.storagePath && (
+                            <span className="text-[9px] font-bold text-teal-700 bg-teal-100/80 px-1.5 py-0.5 rounded-full flex-shrink-0 ml-1">
+                              Private Storage
+                            </span>
+                          )}
                           {file.size && (
                             <span className="text-[10px] text-slate-400 flex-shrink-0 ml-1">
                               {file.size}

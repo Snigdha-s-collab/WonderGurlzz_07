@@ -40,8 +40,36 @@ export default function DocumentSplitViewer({ record, onClose, onRecordUpdated }
   const filesList = Array.isArray(record.files) ? record.files : [];
   const currentFile = filesList[selectedFileIndex] || filesList[0] || null;
 
-  // Resolve actual image URL from user-uploaded file (Base64 dataUrl or remote url)
-  const imageSource = currentFile ? currentFile.dataUrl || currentFile.url || '' : '';
+  const [signedUrl, setSignedUrl] = useState('');
+  const [isResolvingUrl, setIsResolvingUrl] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function resolveUrl() {
+      if (!currentFile) {
+        setSignedUrl('');
+        return;
+      }
+      const rawPath = currentFile.storagePath || currentFile.storage_path;
+      if (rawPath && !currentFile.dataUrl && !currentFile.url) {
+        setIsResolvingUrl(true);
+        const resolved = await getSignedDocumentUrl(rawPath, 300);
+        if (isMounted) {
+          setSignedUrl(resolved || '');
+          setIsResolvingUrl(false);
+        }
+      } else {
+        setSignedUrl(currentFile.dataUrl || currentFile.url || '');
+      }
+    }
+    resolveUrl();
+    return () => {
+      isMounted = false;
+    };
+  }, [currentFile]);
+
+  // Resolve actual image URL from user-uploaded file (Signed URL, Base64 dataUrl, or remote url)
+  const imageSource = signedUrl || currentFile?.dataUrl || currentFile?.url || '';
 
   const isImageFile =
     imageSource &&

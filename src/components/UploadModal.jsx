@@ -29,6 +29,8 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
     return today.toISOString().split('T')[0];
   });
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [isShared, setIsShared] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [error, setError] = useState('');
@@ -47,6 +49,13 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
       window.removeEventListener('drop', preventWindowDrop);
     };
   }, []);
+
+  // Auto-select the first available sharing group if available
+  useEffect(() => {
+    if (sharingGroups && sharingGroups.length > 0 && !selectedGroupId) {
+      setSelectedGroupId(sharingGroups[0].id);
+    }
+  }, [sharingGroups, selectedGroupId]);
 
   if (!isOpen) return null;
 
@@ -102,7 +111,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
@@ -119,6 +128,10 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
     if (selectedFiles.length === 0) {
       setError('Please browse and attach at least one document or scan.');
       return;
+    }
+
+    if (isShared && !selectedGroupId && sharingGroups.length > 0) {
+      setSelectedGroupId(sharingGroups[0].id);
     }
 
     setIsSubmitting(true);
@@ -144,6 +157,41 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
       hour: '2-digit',
       minute: '2-digit',
     });
+    const newRecordId = 'upload-' + Date.now();
+
+    try {
+      // Process files: generate local dataUrl + upload to private Supabase storage
+      const processedFiles = await Promise.all(
+        selectedFiles.map(async (f) => {
+          let dataUrl = '';
+          if (f.type?.startsWith('image/') || f.name?.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
+            dataUrl = await readFileAsDataUrl(f);
+          }
+
+          // Upload to private Supabase Storage 'medical-documents' bucket
+          let storagePath = null;
+          try {
+            storagePath = await uploadMedicalFileToStorage(f, {
+              userId: currentUser?.id || currentUser?.permanentId || 'user',
+              recordId: newRecordId,
+            });
+          } catch (storageErr) {
+            console.warn('Storage upload notice:', storageErr);
+          }
+
+          return {
+            name: f.name,
+            size: (f.size / 1024).toFixed(1) + ' KB',
+            type: f.type || 'Document',
+            dataUrl: dataUrl,
+            url: dataUrl,
+            storagePath: storagePath,
+            storage_path: storagePath,
+          };
+        })
+      );
+
+      const targetGroupId = isShared ? (selectedGroupId || (sharingGroups[0]?.id || null)) : null;
 
     Promise.all(
       selectedFiles.map(async (f) => {
@@ -193,6 +241,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
         rawDate: recordDate,
         time: formattedTime,
         timestamp: `${formattedDate} • ${formattedTime}`,
+        createdAt: now.toISOString(), // Standard ISO 8601 for newest-first sorting
         files: processedFiles,
         status: 'Verified Record',
         ocrData: null,
@@ -206,8 +255,9 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
       setPrescriptionText('');
       setCategory('');
       setSelectedFiles([]);
+      setIsShared(false);
       onClose();
-    }).catch((err) => {
+    } catch (err) {
       console.error(err);
       setIsSubmitting(false);
       setStatusText('');
@@ -218,7 +268,6 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
       <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 max-h-[92vh] flex flex-col">
-        
         {/* Header */}
         <div className="bg-[#0b3b34] text-white px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -239,7 +288,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
         </div>
 
         {/* Content Form */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 text-[#131b2e]">
+        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 text-[#131b2e]">
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl p-3 flex items-start gap-2">
               <Icon name="error" className="text-base text-red-500 flex-shrink-0" />
@@ -254,7 +303,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
             </label>
             <input
               type="text"
-              placeholder="e.g. Daily Metformin 500mg, Fasting Blood Glucose, Cardiac Checkup Report"
+              placeholder="e.g. Neurology Prescription, Complete Blood Count, Cardiology Report"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all font-medium"
@@ -289,7 +338,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
                 </span>
                 <input
                   type="text"
-                  placeholder="e.g. Dr. Rajiv Mehta"
+                  placeholder="e.g. Dr. Sudarshan Bhat"
                   value={doctorName}
                   onChange={(e) => setDoctorName(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition-all"
@@ -339,6 +388,70 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
             </div>
           </div>
 
+          {/* ── CARE CIRCLE RECORD SHARING SECTION ── */}
+          <div className="p-4 rounded-2xl bg-teal-50/70 border border-teal-200/80 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-teal-600 text-white flex items-center justify-center flex-shrink-0">
+                  <Icon name="diversity_1" className="text-base" />
+                </div>
+                <div>
+                  <span className="block text-xs font-bold text-teal-950">
+                    Care Circle Record Sharing
+                  </span>
+                  <span className="block text-[11px] text-teal-700">
+                    Share with authorized family members or caregivers
+                  </span>
+                </div>
+              </div>
+
+              {/* Toggle checkbox */}
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isShared}
+                  onChange={(e) => setIsShared(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
+              </label>
+            </div>
+
+            {isShared && (
+              <div className="pt-2 border-t border-teal-200/60 animate-fadeIn space-y-2">
+                {sharingGroups && sharingGroups.length > 0 ? (
+                  <div>
+                    <label className="block text-[11px] font-bold text-teal-900 mb-1">
+                      Target Care Circle Group
+                    </label>
+                    <select
+                      value={selectedGroupId}
+                      onChange={(e) => setSelectedGroupId(e.target.value)}
+                      className="w-full bg-white border border-teal-300 rounded-xl px-3 py-2 text-xs font-semibold text-teal-950 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+                    >
+                      {sharingGroups.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name} ({g.role === 'owner' ? 'Owner' : 'Care Member'})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-teal-700 mt-1 flex items-center gap-1">
+                      <Icon name="lock" className="text-xs" />
+                      <span>Only authorized members with explicit consent can view. Private to non-members.</span>
+                    </p>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 flex items-center gap-2">
+                    <Icon name="info" className="text-base text-amber-600 flex-shrink-0" />
+                    <span>
+                      You don't have an active Care Circle yet. You can create one from the My Uploads Care Circle manager.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* 3. Browse / Upload Files */}
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
@@ -372,7 +485,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
                 Click to browse or drag files here
               </p>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                PDF, JPG, PNG or DOCX (Max 25MB each)
+                PDF, JPG, PNG or DOCX (Stored in Private Storage)
               </p>
             </div>
 
@@ -443,4 +556,3 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess, currentU
     </div>
   );
 }
-
