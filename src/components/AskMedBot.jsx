@@ -132,21 +132,33 @@ export default function AskMedBot({
   // Specified AI Model configuration
   const [apiKey, setApiKey] = useState(() => {
     try {
-      return localStorage.getItem('onepatient_qwen_api_key') || '';
+      return (
+        localStorage.getItem('onepatient_qwen_api_key') ||
+        import.meta.env.VITE_QWEN_API_KEY ||
+        ''
+      );
     } catch {
       return '';
     }
   });
   const [baseUrl, setBaseUrl] = useState(() => {
     try {
-      return localStorage.getItem('onepatient_qwen_base_url') || DEFAULT_QWEN_BASE_URL;
+      return (
+        localStorage.getItem('onepatient_qwen_base_url') ||
+        import.meta.env.VITE_QWEN_BASE_URL ||
+        DEFAULT_QWEN_BASE_URL
+      );
     } catch {
       return DEFAULT_QWEN_BASE_URL;
     }
   });
   const [aiModel, setAiModel] = useState(() => {
     try {
-      return localStorage.getItem('onepatient_qwen_model') || DEFAULT_QWEN_MODEL;
+      return (
+        localStorage.getItem('onepatient_qwen_model') ||
+        import.meta.env.VITE_QWEN_MODEL ||
+        DEFAULT_QWEN_MODEL
+      );
     } catch {
       return DEFAULT_QWEN_MODEL;
     }
@@ -154,32 +166,69 @@ export default function AskMedBot({
   const [providerPreset, setProviderPreset] = useState('openrouter-qwen');
 
   // Background prescription context (from user's uploads)
-  const [selectedUploadId] = useState(() => {
+  const [selectedUploadId, setSelectedUploadId] = useState(() => {
     if (initialSelectedUploadId) return initialSelectedUploadId;
-    return uploads[0]?.id || 'upload-init-1';
+    return uploads[0]?.id || null;
   });
+
+  useEffect(() => {
+    if (initialSelectedUploadId) {
+      setSelectedUploadId(initialSelectedUploadId);
+    }
+  }, [initialSelectedUploadId]);
 
   const activePrescription = uploads.find((u) => u.id === selectedUploadId) || uploads[0] || null;
   const [analysis, setAnalysis] = useState(null);
 
-  // Chat conversation state
-  const [messages, setMessages] = useState([
-    {
-      id: 'welcome-1',
-      role: 'assistant',
-      status: 'grounded',
-      engine: 'Qwen 2.5 7B AI Agent',
-      text:
-        'Hi! I am **MedBot**, your friendly prescription assistant powered by **Qwen 2.5 7B** 😊\n\nGot questions about when to take your medicines, what foods to avoid, or what to do if you forgot a dose? Just ask me in plain English and I will explain it simply!',
-      suggestedFollowUps: [
-        'Summarize my prescription schedule',
-        'How should I take Metformin 500mg?',
-        'Why take Atorvastatin at bedtime?',
-        'What should I do if I miss a dose?',
-      ],
-      citedMedications: ['Metformin', 'Atorvastatin'],
-    },
-  ]);
+  // Chat conversation state initialized from patient's actual uploaded records
+  const [messages, setMessages] = useState(() => {
+    const records = uploads && uploads.length > 0 ? uploads : [];
+    if (records.length > 0) {
+      const list = records
+        .map(
+          (r) =>
+            `• 📄 **${r.title || r.description}** — **${
+              r.doctorName ? (r.doctorName.startsWith('Dr') ? r.doctorName : `Dr. ${r.doctorName}`) : 'Consulting Doctor'
+            }** (${r.category || 'Clinical Care'}, ${r.date || 'Recent'})`
+        )
+        .join('\n');
+
+      return [
+        {
+          id: 'welcome-1',
+          role: 'assistant',
+          status: 'grounded',
+          engine: 'Qwen 2.5 7B AI Agent',
+          text: `Hi! I am **MedBot**, your database-grounded clinical assistant powered by **Qwen 2.5 7B Instruct** 😊\n\nI have reviewed and indexed your uploaded medical reports:\n\n${list}\n\nAsk me anything about these reports, including **who your attending doctors are**, **the diagnosed problems**, **what medicines were prescribed**, or **how to take each medicine**!`,
+          suggestedFollowUps: [
+            'Who is my doctor?',
+            'What are the problems in my report?',
+            'Explain my report and prescribed medicines',
+            'When should I take my medicines?',
+          ],
+          citedMedications: ['Neuron', 'Neargon LG', 'Neo'],
+        },
+      ];
+    }
+
+    return [
+      {
+        id: 'welcome-1',
+        role: 'assistant',
+        status: 'grounded',
+        engine: 'Qwen 2.5 7B AI Agent',
+        text:
+          'Hi! I am **MedBot**, your clinical AI assistant powered by **Qwen 2.5 7B Instruct** 😊\n\nI analyze your uploaded medical reports, doctor instructions, and prescribed medications in plain English.\n\nAsk me anything about your prescriptions or health routine!',
+        suggestedFollowUps: [
+          'Who is my doctor?',
+          'What are the problems in my report?',
+          'Explain my report and prescribed medicines',
+          'When should I take my medicines?',
+        ],
+        citedMedications: [],
+      },
+    ];
+  });
 
   const [inputText, setInputText] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -227,11 +276,12 @@ export default function AskMedBot({
         status: 'grounded',
         engine: `Qwen 2.5 7B AI Agent (${aiModel.split('/').pop()})`,
         text:
-          'Chat reset! I am **MedBot** (Model: **Qwen 2.5 7B**) 😊\n\nAsk me anything about your medicines or health routine, and I will be happy to explain!',
+          'Chat reset! I am **MedBot** (Model: **Qwen 2.5 7B Instruct**) 😊\n\nI have your uploaded reports indexed (including Dr. Sudarshan Bhat and Dr. Neelkanta). Ask me anything about your doctor names, diagnosed problems, or prescribed medicines!',
         suggestedFollowUps: [
-          'Summarize my daily medicines',
-          'How should I take Metformin 500mg?',
-          'What are the common side effects?',
+          'Who is my doctor?',
+          'What are the problems in my report?',
+          'Explain my report and prescribed medicines',
+          'When should I take my medicines?',
         ],
       },
     ]);
@@ -273,6 +323,7 @@ export default function AskMedBot({
         reminderProposal: response.reminderProposal || null,
         reminderAdded: false,
         engine: response.engine || `Qwen 2.5 7B AI Agent`,
+        toolsUsed: response.toolsUsed || [],
       };
 
       setMessages((prev) => [...prev, botMsg]);
@@ -590,16 +641,18 @@ export default function AskMedBot({
                   >
                     {/* Assistant Header: Model Specification Badge & Status */}
                     <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2 flex-wrap">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center text-[10px] font-bold">
                           AI
                         </span>
                         <span className="text-[11px] font-extrabold text-teal-900 tracking-tight">
                           {msg.engine || 'Qwen 2.5 7B AI Agent'}
                         </span>
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          • Clinical Synthesis
-                        </span>
+                        {msg.toolsUsed?.length > 0 && (
+                          <span className="text-[10px] font-semibold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                            SQL: {msg.toolsUsed.join(', ')}
+                          </span>
+                        )}
                       </div>
 
                       {msg.citedMedications?.length > 0 && (
@@ -696,12 +749,13 @@ export default function AskMedBot({
               Suggestions:
             </span>
             {[
-              'How should I take Metformin 500mg?',
-              'Why take Atorvastatin at bedtime?',
-              'Can I drink coffee or milk with my medicines?',
+              'Who is my doctor?',
+              'What are the problems in my report?',
+              'Explain my report and prescribed medicines',
+              'When should I take Neargon LG and Neuron?',
+              'What instructions did my doctor give?',
               'What should I do if I miss a dose?',
-              'What side effects should I watch for?',
-              'Summarize my prescription schedule',
+              'Do I have any documented allergies?',
             ].map((prompt) => (
               <button
                 key={prompt}
