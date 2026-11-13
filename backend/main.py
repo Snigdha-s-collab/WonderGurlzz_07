@@ -1,3 +1,13 @@
+import sys
+from pathlib import Path
+
+# Ensure current directory and parent directory are on sys.path so 'backend.*' imports resolve anywhere
+_CURRENT_DIR = Path(__file__).resolve().parent
+if str(_CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(_CURRENT_DIR))
+if str(_CURRENT_DIR.parent) not in sys.path:
+    sys.path.insert(0, str(_CURRENT_DIR.parent))
+
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field

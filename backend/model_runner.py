@@ -24,14 +24,24 @@ BACKEND_DIR = Path(__file__).resolve().parent
 ENV_PATH = BACKEND_DIR / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
 
-from .schemas import (
-    MedicalOCRResponse,
-    DocumentType,
-    PrescriptionDetails,
-    ReportDetails,
-    DischargeSummaryDetails,
-    UnreadableItem,
-)
+try:
+    from .schemas import (
+        MedicalOCRResponse,
+        DocumentType,
+        PrescriptionDetails,
+        ReportDetails,
+        DischargeSummaryDetails,
+        UnreadableItem,
+    )
+except ImportError:
+    from schemas import (
+        MedicalOCRResponse,
+        DocumentType,
+        PrescriptionDetails,
+        ReportDetails,
+        DischargeSummaryDetails,
+        UnreadableItem,
+    )
 
 logger = logging.getLogger("onepatient.model_runner")
 
