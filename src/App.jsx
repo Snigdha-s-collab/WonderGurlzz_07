@@ -23,25 +23,82 @@ import {
   unsubscribeFromMedicalRecords,
 } from './lib/supabaseClient';
 
+export const INITIAL_UPLOADS = [
+  {
+    id: 'upload-init-neuro',
+    title: 'Prescription of Neurology',
+    description: 'Prescription of Neurology — Neurological evaluation and nerve support therapy with Dr. Sudarshan Bhat.',
+    category: 'Neurology',
+    date: 'Nov 13, 2026',
+    time: '05:55 PM',
+    timestamp: 'Nov 13, 2026 • 05:55 PM',
+    doctorName: 'Dr.Sudarshan Bhat',
+    prescriptionText:
+      'Dr. A. Sudarshan Bhat, M.D. (Ayu) • Reg. No. 15051\nVishnu Ayurvedalaya & Panchakarma Clinic\nPrescribed Medication:\n1. Neargon LG — 0 - 1 - 0 (30 tabs) — Take 1 tab afternoon after lunch\n2. Neuron — 1 - 0 - 1 (60 tabs) — Take 1 tab morning & 1 tab night with warm water\n3. Neo — 1 - 0 - 1 (60 tabs) — Take 1 tab morning & 1 tab night with warm water\n4. Mahanarayan Taila — External gentle application as directed for nerve/muscular pain',
+    files: [
+      {
+        name: 'WhatsApp Image 2026-11-12 at 5.55.52 PM.jpeg',
+        size: '91.4 KB',
+        type: 'image/jpeg',
+        url: '/uploads/WhatsApp-Image-2026-11-12.jpeg',
+        dataUrl: '/uploads/WhatsApp-Image-2026-11-12.jpeg',
+      },
+    ],
+    status: 'Cryptographically Verified',
+  },
+  {
+    id: 'upload-init-general',
+    title: 'General Medications',
+    description: 'General health consultation and maintenance prescription with Dr. Neelkanta.',
+    category: 'General Medicine',
+    date: 'Nov 12, 2026',
+    time: '01:06 AM',
+    timestamp: 'Nov 12, 2026 • 01:06 AM',
+    doctorName: 'Dr.Neelkanta',
+    prescriptionText:
+      'Consultation with Dr. Neelkanta (General Medicine)\n1. General maintenance and metabolic health\n2. Maintain balanced nutrition, adequate hydration, and periodic vitals check',
+    files: [
+      {
+        name: 'WhatsApp Image 2026-11-13 at 1.06.37 AM.jpeg',
+        size: '238.5 KB',
+        type: 'image/jpeg',
+        url: '/uploads/prescription-default.jpeg',
+        dataUrl: '/uploads/prescription-default.jpeg',
+      },
+    ],
+    status: 'Cryptographically Verified',
+  },
+];
+
 const INITIAL_REMINDERS = [
   {
     id: 'rem-init-1',
-    medName: 'Metformin',
-    dosage: '500mg',
-    time24: '08:00',
-    instruction: 'Take 1 tablet after warm breakfast',
+    medName: 'Neuron',
+    dosage: '1 tablet',
+    time24: '08:30',
+    instruction: 'Take 1 tablet after breakfast with warm water (Dr. Sudarshan Bhat)',
     enabled: true,
-    sourcePrescriptionId: 'upload-init-1',
+    sourcePrescriptionId: 'upload-init-neuro',
     lastTakenDate: null,
   },
   {
     id: 'rem-init-2',
-    medName: 'Atorvastatin',
-    dosage: '20mg',
-    time24: '22:00',
-    instruction: 'Take 1 pill at bedtime with water',
+    medName: 'Neargon LG',
+    dosage: '1 tablet',
+    time24: '13:30',
+    instruction: 'Take 1 tablet after lunch with water (Dr. Sudarshan Bhat)',
     enabled: true,
-    sourcePrescriptionId: 'upload-init-1',
+    sourcePrescriptionId: 'upload-init-neuro',
+    lastTakenDate: null,
+  },
+  {
+    id: 'rem-init-3',
+    medName: 'Neo',
+    dosage: '1 tablet',
+    time24: '21:30',
+    instruction: 'Take 1 tablet after dinner with warm water (Dr. Sudarshan Bhat)',
+    enabled: true,
+    sourcePrescriptionId: 'upload-init-neuro',
     lastTakenDate: null,
   },
 ];
