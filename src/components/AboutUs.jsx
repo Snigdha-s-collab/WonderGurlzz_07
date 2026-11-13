@@ -238,7 +238,7 @@ export default function AboutUs({ setPage, currentUser, onLogout, onOpenUploadMo
                   else if (link === 'Access QR') setPage('access-qr');
                   else if (link === 'About Us') setPage('about-us');
                   else if (link === 'Ask MedBot') {
-                    alert('Ask MedBot AI: You can consult regarding your uploaded prescriptions and health history.');
+                    setPage('medbot');
                   }
                 }}
                 className={`text-sm font-medium transition-colors ${
@@ -341,47 +341,14 @@ export default function AboutUs({ setPage, currentUser, onLogout, onOpenUploadMo
             </p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
-            {/* The Problem Card */}
-            <div className="bg-gradient-to-br from-rose-50/60 to-white rounded-3xl p-6 sm:p-8 border border-rose-100 shadow-sm flex flex-col justify-between">
-              <div>
-                <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-5">
-                  <Icon name="crisis_alert" className="text-2xl" />
-                </div>
-                <h3 className="text-xl font-extrabold text-slate-900 mb-2">The Real-World Problem</h3>
-                <p className="text-slate-600 text-xs sm:text-sm leading-relaxed mb-6">
-                  Patients receive clinical care from multiple clinics, diagnostic centers, and specialized hospitals throughout their lifetime.
-                </p>
-
-                <ul className="space-y-3.5">
-                  {[
-                    'Records are scattered across physical paper files, emails, portals, and different healthcare centers.',
-                    'Patients struggle to retrieve previous prescriptions, laboratory panels, imaging scans, and surgical notes.',
-                    'Treating doctors often lack access to comprehensive patient medical history during critical consultations.',
-                    'Repeated investigations, diagnostic delays, and medication oversights can impact healthcare quality.',
-                  ].map((item, idx) => (
-                    <li key={idx} className="flex items-start gap-3 text-xs sm:text-sm text-slate-700">
-                      <span className="w-5 h-5 rounded-full bg-rose-200/80 text-rose-700 flex items-center justify-center text-xs flex-shrink-0 mt-0.5 font-bold">
-                        ✕
-                      </span>
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="mt-8 pt-4 border-t border-rose-100 text-[11px] text-rose-800 font-medium">
-                Consequence: Fragmented patient journeys, duplicated medical costs, and clinical blindspots.
-              </div>
-            </div>
-
-            {/* The OnePatient Solution Card */}
-            <div className="bg-gradient-to-br from-teal-50/70 to-white rounded-3xl p-6 sm:p-8 border border-teal-200 shadow-sm flex flex-col justify-between">
+          <div className="w-full">
+            {/* The OnePatient Solution Card (Full Width) */}
+            <div className="bg-gradient-to-br from-teal-50/70 to-white rounded-3xl p-6 sm:p-8 md:p-10 border border-teal-200 shadow-sm flex flex-col justify-between">
               <div>
                 <div className="w-12 h-12 rounded-2xl bg-teal-100 text-teal-800 flex items-center justify-center mb-5">
                   <Icon name="verified" className="text-2xl" />
                 </div>
-                <h3 className="text-xl font-extrabold text-[#00241f] mb-2">The OnePatient Solution</h3>
+                <h3 className="text-xl sm:text-2xl font-extrabold text-[#00241f] mb-2">The OnePatient Solution</h3>
                 <p className="text-slate-600 text-xs sm:text-sm leading-relaxed mb-6">
                   A centralized, patient-held digital health ledger unifying every document, medication, and clinical encounter into one continuous narrative.
                 </p>
@@ -403,7 +370,7 @@ export default function AboutUs({ setPage, currentUser, onLogout, onOpenUploadMo
                 </ul>
               </div>
 
-              <div className="mt-8 pt-4 border-t border-teal-200 text-[11px] text-teal-900 font-bold">
+              <div className="mt-8 pt-4 border-t border-teal-200 text-[11px] sm:text-xs text-teal-900 font-bold">
                 Impact: A unified, lifelong medical record accessible whenever health decisions are made.
               </div>
             </div>

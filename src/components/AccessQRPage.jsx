@@ -133,7 +133,7 @@ export default function AccessQRPage({ setPage, currentUser, onLogout }) {
                   else if (link === 'Access QR') setPage('access-qr');
                   else if (link === 'About Us') setPage('about-us');
                   else if (link === 'Ask MedBot') {
-                    alert('Ask MedBot AI: You can consult regarding your uploaded prescriptions and health history.');
+                    setPage('medbot');
                   }
                 }}
                 className={`text-sm font-medium transition-colors ${
